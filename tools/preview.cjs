@@ -317,11 +317,12 @@ Size <select id="zoom"><option value="1">1x (real pixels)</option><option value=
 <div id="vibe">bzz</div>
 <script>
 ${runtime.replace('__GAME__', JSON.stringify(game)).replace('__IMAGES__', JSON.stringify(images))}
-{
-// the game runs in its own block so its names never clash with the preview's
+;(function () {
+// the game runs in its own function scope so its names never clash with the preview's
+// (a plain { } block is not enough: function declarations inside it leak to the global scope)
 ${stubs}
 ${chunks.join('\n')}
-}
+})()
 ${view}
 </script></body></html>`
 

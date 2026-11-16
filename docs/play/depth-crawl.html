@@ -137,8 +137,9 @@ function Page(p) { page = p }
 function App() {}
 function getApp() { return { _options: { globalData: {} } } }
 
-{
-// the game runs in its own block so its names never clash with the preview's
+;(function () {
+// the game runs in its own function scope so its names never clash with the preview's
+// (a plain { } block is not enough: function declarations inside it leak to the global scope)
 const VIBRATOR_SCENE_SHORT_LIGHT = __stub("VIBRATOR_SCENE_SHORT_LIGHT")
 const VIBRATOR_SCENE_SHORT_STRONG = __stub("VIBRATOR_SCENE_SHORT_STRONG")
 const VIBRATOR_SCENE_SHORT_MIDDLE = __stub("VIBRATOR_SCENE_SHORT_MIDDLE")
@@ -2313,7 +2314,7 @@ Page({
   }
 })
 
-}
+})()
 
 // ================= screen, input and controls =================
 const scr = document.getElementById('s'), g = scr.getContext('2d')
