@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bip 6 Watch Games</title>
+<style>
+  :root { --bg:#141418; --card:#1f1f26; --line:#2e2e38; --text:#e8e8ee; --muted:#9a9aa8; --accent:#5aa9ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 system-ui, -apple-system, Segoe UI, sans-serif; }
+  main { max-width:960px; margin:0 auto; padding:40px 16px 64px; }
+  h1 { font-size:32px; margin:0 0 8px; }
+  p.lead { color:var(--muted); margin:0 0 8px; max-width:680px; }
+  p.note { color:var(--muted); font-size:14px; margin:0 0 32px; }
+  a { color:var(--accent); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(210px, 1fr)); gap:16px; }
+  .card { display:flex; flex-direction:column; gap:10px; background:var(--card); border:1px solid var(--line);
+          border-radius:14px; padding:16px; text-decoration:none; color:inherit; transition:border-color .15s, transform .15s; }
+  .card:hover { border-color:var(--accent); transform:translateY(-2px); }
+  .card img { width:72px; height:72px; border-radius:50%; image-rendering:pixelated; }
+  .card h2 { font-size:18px; margin:0; }
+  .card p { margin:0; color:var(--muted); font-size:14px; flex:1; }
+  .card span { color:var(--accent); font-size:14px; font-weight:600; }
+  footer { margin-top:40px; color:var(--muted); font-size:14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Bip 6 Watch Games</h1>
+  <p class="lead">Eight original games for the Amazfit Bip 6 smartwatch (Zepp OS, 390×450 touch screen), written in JavaScript by Tudor Marian-Vlad.</p>
+  <p class="note">These browser builds fake the watch APIs so you can play on a computer: the mouse is your finger, and the panel beside the watch lists swipe and tilt controls. Speed and feel are approximate.</p>
+  <div class="grid">
+    <a class="card" href="play/tap-quest.html"><img src="icons/tap-quest.png" alt=""><h2>Tap Quest</h2><p>Idle clicker RPG: tap the monster, hire heroes, earn gold even while away.</p><span>Play →</span></a>
+    <a class="card" href="play/wristlings.html"><img src="icons/wristlings.png" alt=""><h2>Wristlings</h2><p>Catch, feed and battle creatures powered by your steps and sleep.</p><span>Play →</span></a>
+    <a class="card" href="play/depth-crawl.html"><img src="icons/depth-crawl.png" alt=""><h2>Depth Crawl</h2><p>First-person roguelite: fight down endless torchlit floors.</p><span>Play →</span></a>
+    <a class="card" href="play/neon-horizon.html"><img src="icons/neon-horizon.png" alt=""><h2>Neon Horizon</h2><p>Synthwave night racer on rain-slick neon roads.</p><span>Play →</span></a>
+    <a class="card" href="play/stick-duel.html"><img src="icons/stick-duel.png" alt=""><h2>Stick Duel</h2><p>Swipe to jab, kick, sweep and guard in stickman duels.</p><span>Play →</span></a>
+    <a class="card" href="play/tilt-arena.html"><img src="icons/tilt-arena.png" alt=""><h2>Tilt Arena</h2><p>Tilt your wrist to survive waves of monsters.</p><span>Play →</span></a>
+    <a class="card" href="play/orbit-pop.html"><img src="icons/orbit-pop.png" alt=""><h2>Orbit Pop</h2><p>Marble shooter: pop orbs before they reach the black hole.</p><span>Play →</span></a>
+    <a class="card" href="play/mine-patrol.html"><img src="icons/mine-patrol.png" alt=""><h2>Mine Patrol</h2><p>Dig the field, flag the mines, beat your best time.</p><span>Play →</span></a>
+  </div>
+  <footer>Source code: <a href="https://github.com/TudorMarianVlad/bip6-watch-games">github.com/TudorMarianVlad/bip6-watch-games</a></footer>
+</main>
+</body>
+</html>

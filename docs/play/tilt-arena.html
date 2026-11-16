@@ -1,0 +1,1357 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Tilt Arena - Bip 6 preview</title>
+<style>
+body{background:#1b1b1f;color:#ddd;font:14px system-ui,sans-serif;margin:0;display:flex;gap:24px;padding:24px;flex-wrap:wrap}
+#s{border-radius:86px;touch-action:none;box-shadow:0 0 0 10px #333,0 0 0 12px #555;cursor:pointer;width:585px;height:675px}
+.panel{width:330px;display:flex;flex-direction:column;gap:12px}
+h1{font-size:18px;margin:0;color:#fff} .box{background:#26262c;border-radius:10px;padding:10px 12px}
+button{background:#3a3a44;color:#fff;border:0;border-radius:6px;padding:6px 10px;cursor:pointer;margin:2px} button:hover{background:#4a4a58}
+#log{height:220px;overflow:auto;font:12px Consolas,monospace;background:#111;border-radius:8px;padding:8px}
+.err{color:#ff6b6b}.warn{color:#e8c46a} small{color:#999} kbd{background:#333;border-radius:3px;padding:0 4px}
+#vibe{position:fixed;top:12px;left:12px;background:#ff3fd0;color:#000;padding:3px 8px;border-radius:6px;opacity:0;transition:opacity .15s}
+</style></head><body>
+<canvas id="s" width="390" height="450"></canvas>
+<div class="panel">
+<h1>Tilt Arena</h1>
+<div class="box">Mouse = finger (click, hold, drag).<br>System swipes: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
+<button data-g="up">↑</button><button data-g="left">←</button><button data-g="down">↓</button><button data-g="right">→</button><br>
+<label><input type="checkbox" id="mg" checked> mouse drags also send system swipes</label><br>
+Tilt (accelerometer): hold arrow keys <small id="tilt">x 0  y 0</small></div>
+<div class="box">Steps today: <b id="stepv"></b> <button id="steps">+100 steps</button><br>
+<label><input type="checkbox" id="strict" checked> strict canvas (empty drawRect throws, like the watch)</label><br>
+Size <select id="zoom"><option value="1">1x (real pixels)</option><option value="1.5" selected>1.5x</option><option value="2">2x</option></select>
+<button id="reload">Restart</button><button id="reset">Reset save</button></div>
+<div class="box"><small>Log (console.log, errors, things the preview cannot fake)</small><div id="log"></div></div>
+<small>After changing code run: node tools/preview.cjs "Tilt Arena" again, then Restart.<br>Speed, fonts and feel differ from the watch: always check there too.</small>
+</div>
+<div id="vibe">bzz</div>
+<script>
+
+// ================= fake Zepp OS runtime =================
+const W0 = 390, H0 = 450, CORNER = 86
+const GAME = "Tilt Arena"
+const IMG_SRC = {"icon.png":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAPgAAAD4CAYAAADB0SsLAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAABVvSURBVHgB7d3PbxRnmgfwx91ta6IgxeSSHPjROFKUXMBDEi1BGJpsEpZNNJhIifYQbdCe9jQwc5rdw+DkD5iQnOY0AyMOM5fE3DJKZmgbMD4gYSeHJAfiMiQSiRRsEpDAP9rzfNvVqGlXV1d1V7314/1+JK9NQ1gG+uvneZ/3rSoRIiIiIiIiIjKhTyhz9uzZUy6VSuW+vr7y2traY4VCYQc+608Nuh/lpl9e7vDbOfg/+nst6u+x2HhNf3y7Vqst6ucZvL6ysuJMT087QpnCgKdUpVIZ1FAN65e73ABv16/x47Iky5H1bwCz+g1gTr+e1W82M9VqdVEodRjwFECYV1dXKwixBqci6QhyWI5+oNrP6ucqQ58ODHgC3ECPapiHNRBHJHthDsRt72f0y3PLy8szbPHNY8AN2bdvX0Vb7VH98oC+6YfFQgi8fprQ1n784sWLVaHYMeAxaVRp/fKAfuDzoFAztO9VDf24fuM7x3Y+Hgx4hJpC/Y6sr6MZ6uDGEfbJyckzQpFhwCPQaL+19UawGereoJKP69/lGbbxvWPAu4RqrWvJ4/pGPCEMdVywHTe2tLQ0wQFddxjwkFCt9U13XNbX1WTOaVb18BjwgEZGRhBoBLsilBh3En+Ka/VgGHAfTW34McnpXnWG1dt3Bt0fA+6B6+tMYdB9MOAt9u/ff5LBziQG3QMD7tI19jH9dFLYimcdg97E+oC7U3EEuyKUJ87q6urRqampGbGYtQHXdXZZ3wDvC7e78u708vLyu7buoxfFQlhn6xDttKwfJ6V8Gy4Wi8fK5fIv5ufnJ8QyVlVw90jp+7ZezUXiaDU/aFM1tyLg7rZXYzpOltOZyyn9Rv+uDVew5T7g7hDtz8LpOD3MiiFcrtfgutbGEO2Pwj1t2mhQq/j/6tpc8rw2z2UFx4RcW/KPudamgHK7Ns9dBdeqfVzD/VdhS07BDWLSvn379vvXr1+flhzJTQXnII2ikLcBXC4C7h5aOS+s2hSN3LTsmW/RMSXXqo1wPylE0UDLPqot+7y27F9JhmU64DiRpp9O68cvhCha2Hn5r6xP2TMbcGyBaeX+nRDFq6IhH9SQ/10yKHNrcPfWxB8Lr/4ig3CrKB2+Hcza8C1TAecwjRKWueFbZgLOcFNKZCrkBcmAvXv3DjPclBLl/v7+83hGu2RA6is4wq1bFgg3z5NTmixq0TmY9otVUh1whptSLvUhT23AGW7KiFSHPJUBZ7gpY1Ib8tQFnOGmjFqs1Wov6QDuqu6VS1qkaoqOrTANNw6xMNyUNbiBxEf37t3boe9jSYvUBJz73JQD2EL7J0I+NjYmaZCKFt09fnpVGG7KB0c70d3aqi9IwlJRwXXtwspNeYJu9KNDhw4lXkATv5rMvSqMTxehvCmvrKw8tmPHjr87jiNJSTTg7pM8eckn5dUe/ejTkFeTCnliLcTIyAiq9sdClHNaxF4qlUrnk9g+S2QNjom5fnpfiCzQ19f3UVKTdeMVnBNzshQm6780fcMI4xUctzYWhpvsg4dxnDx8+LCYZHTIhocS6HpkTIjstGdpaen20NDQtKmhm7EKjnU3w00kJ7EeF0OMBdw9hsoz5mS7wYGBAWOHYIy06O79y3mYhWjdk6YOwcRewd0nj4wJET2AZ+hpyA/GvXUWa5vALTEiX7FvncVawbklRuSrvnUW5/XjsQXcnZrzUb5EPhqtusQktoC7U3Mi6qBQKPwhrioeyxSdU3OiUJ7UVr1vaGgo8qvOIh+yubdewmAtN3veb7/9tlD6nD17VnJkcXl5eff09PScRCjyFl3DPSY80EIU1mB/f3/krXqkAcctj/XTO0JE3RjVgVtFIhRpwN1bHufO0tKSEJnQ19cX6bZZZAEfGRk5Jjnd89a1kRAZUtGBW2RdcJQV/KQQUc9wtDuqKh5JwPNcveHOnTtCZBDuyDoWxTn1qCp4rqs31+Bkmq7Fj1er1Z53o3oOeN6rNzDglIBBreIneq3iUVTw3K+97969K0SmRVHFewq4DdUbGHBKSL2KSw96reBWTM7ZolNStIq/8/rrr0u3ug64LdUbbt26JUQJKd++ffuIdKnrgOte3XGxBFt0StiJbvfFuwo47rOmrcOwWIQhpwRVuj2j3lXANdzHxDI3b94UoqRgot7NllnogLsPDrTuirGFhQUhStBoN1tmoQO+urpaEQsx4JS0brbMumnRrbyohAGnpKFNDztsK4X5xRiuiaW3QcZeOAZtjz76qMQF30Ru3LghRG0MusO2atD/IFTAbRyuNUP4nnnmGYkLrlr7/PPPhcjHqA7bqkEHbmFb9K433PPg+++/lzg98cQTQuQHJ9vCDNsCB9w9uWb1zRTjDvjAwECsSwDKhUFdLga+JXmYCm519Qasw+MO+VNPPSVEforF4juRtuh4iKDwQQZ1cQ/B2KZTAMNB2/RAAde9b4bb9c0330icEHCGnDoI3KYHbdGtb88bTLTpO3fuFCI/2qYfCPLrgga8IvSAiTadVZw6GA1y6KVjwN3DLXwUURO06XHfBIJVnDoYDHKFWZAKzvV3C4TbxFp8aGhIiHx0zGaQgAfq9W1j4kjp888/X98bJ/JSKBQOdNou8w04Lg217cYOQWHQZuLgy4ED/P5K3tbW1jpul/kGXLfHGG4fJs6No1WP8/w7ZVun7bJOLTrX3z5MVHFAq86pOnnRNt23CPsGXFuAXUK+TF39tXfvXp5Tpw10CX3Ebx3eNuA4nsr1d2emqjjC/eqrrzLk1Krstw5vG3DdY2O4AzJVxRFuHG7gZJ2a6ays7STWr0WvCAWCCv7VV1+JCZs3b5ZXXnmFIacHarXajnY/1zbg2p5zfyYEVHFTjzhiyKmZDtoqbX9O2isLBYZwX758WUxphJxrclK72g3aPAPuXv9dFgoFp9tMteqAkHPwRuIzaPMMOAds3UOrjpsnmtKYriPsZK92mfUMOI7ACXUFrfrExISYhJCjXeeJN3u1y6xnwHXAVhbqGu5vfuXKFTEJAzeceONlpnZql9l2AecJth5hLW5yPd6AgL/22mtcl1smVMCFA7ZIoIqbOOXWqjF84/XkVvEsygx4zLAeT+K5ZqjgOL/+3HPPcb/cDmWvWzhtCLj7eGCKCIZuuoVhdLLe7Nlnn6237Fu2bBHKt3v37pVbX9sQcB23l4UihYcWfvrpp4mFvHGG/cUXX+TaPMdKpVK59bUNAdfFOm+wGINGyJN8DDGemsK1eX7VarVy62sbAs498Pg0Qp7kI4Iba/OjR4/ycEzOeBXnYusL27ZtG9VfuEcoFqurqzI/P1//Osm7tGDw9vTTT9cDj65ieXlZKPO+vn79+ifNL2x4PjhbdDMaV5/hcEqS0Lbj49q1a/U/E7oMyibN7mOtr5U8ft12ISNwEAbtOo6Zbtq0SZLEoOfChjXXhhZ9+/btx4T74MagNUbI0TI//vjjkjT8GbC1htYdfzYGPTt0fnZTW/Qzza95rcFPaKl/UsgYBOnbb7+tb6Nh8JWGgykIOir61q1b63ODJKf/FIzmVjTgHzS/5lXBfyd8FlkiEKI0VXN45JFH6iFH2PHNh1U91RZbA97X+itGRkbmhC164hAmPNUk6bW5FwRc30j157OxsqeKc+HChYfuz+YV8DWh1MChFFwhlsagA8J+8+bN+hIjyf19WqcBfyjTQZ8PTglBlRwfH5epqanEjrr6wTAO7TufoZZOJaFMQNDxkfaKTunCgGdMc9BROfnMMvLDFj2jOMmmIFjBMwZbVri5Iis3BcGAZwRa8l27dvF6bgqFAU85VOo0PzoYF8xge+yHH34QSh+vgDvCgy6Jw0EXXGmWxlYcocZFKdj7TuKmktSW0/oCK3jK9Pf311vxtD3EAKFuPEWVoc4OBjxF0tiO43ANtuW+/PJL3hQi5fr6+hZbX2OLngJprNqo0rgunNU6O2q1WqCALwoZ03h4YFqqNoOdL14Bvy1kBLa+XnjhhXoFTxqDnX3aojutr20I+Nra2iIuHKd44Tx5Gh4UiCvBvvjiCwY7BzS7G4qzV8AdBjxeGKQlfW/yn3/+WaanpxnsfOm8Bi8UClyDxwStOJ4wkuTeNra7sNWFdpzyRQvz1dbXWMENQbgxTEvyYQNoxy9fvswLVXIqUIteKpUc3GSPopN0uO/fv18PNk6eUX6trKw4ra95lmretilaeLpnUuHGOXHcDYaHVPKv9XZN0O4kmyM87BIJDNSSCDeqNqbjWG+TFRyvF9sFfEYY8J5hGyyJafmPP/4ok5OTXGtbBLMzr9dLbX7xPAdtvcGx0yT2uVGxZ2dn2ZLbZ9brxXYB5yS9Bzh2irPlpl25coUtuaVCVXAN94xQVxoTc5PHT7HeRkvOQyv2apdZz4DrVtkMt8q6Y/q2SjiR9tlnn3G9bTlk1ut1z7uqVqtVnGZzhELBQM3kJZ8MN7kcN7Mb+N3wgZP0EBrXdJuCSTnCzWEatVt/Q9v7otdqtQmhwBrP1DaB4aYWbbPaNuCFQsERCgTBNrUl1mjLGW5qUm33E20DXiwWq0KBMNyUpHYDNmgbcA7agsGln3hGWNw4UCMv2B5rN2AD32eT6eL9nJAvU9UbN2dguKmVZtT3zIpvwHngxR+qt4mbN/BeaeRj3O8nfQOu63Df/9h2Jqo3Lvfk3VeoHZ3HzPr9vG/A0dt3agFshcl53NUb626cLyfygg5bl26O368J8nxw7od7MFG9cT03193UTpCzKkECzja9xcDAQP053XG6detW/ZFBRD46ZrNjwC9evFgVPu3kIVu2bKmHPE4TE2ycyNeim01fQSo4cLusSdz73ng0L1tz6iBQBQga8KpQnYnhGltz6kQHbB8H+XWBAu5ul7FNFzEyOeeeN3VSKBQCddWBAu4eheN2mcTfnn/99ddC1ME5v+OpzYK26HBGLIfBWtwVnNWbOgnankPggLNNj789v3PnjiwsLAiRj8XJycnAxTZwwN1TbVZX8bgDzsk5BRDqXEpJwsFvflwsFXfAsQRIwzPDs8LGM/phi2zom5+PjIyghxwUyyB8b731llB6nD17Viwzd+HChVCPygkzZKvT7yAfiIWSfOwvEehw7V0JKXTAS6XSKbEQA05JW1paCn1+OXTA3f036y5AMXFjByIfpztdGuoldMDBxjZ906ZNQpSUbnewugq4exVLVSzCFp2Somvvq0GuHPPSVcBd1lRxhpsS1nXWug64juuxDnfEAnFf+03kYy7MybVWvVRwseVkGys4JaWbrbFmPQXc3TLL/fl0VnBKSE/VG3oKuHs+PfdrcZPP+yZq6LV6Q08BBxuqOLfIKAE9V2/oOeC2VHEik6Ko3tBzwEH36MYkxxN1VnAyLJLqDZEE3BXJdxwi20VVvSGygOu++GnJ6em2/v5+ITIksuoNUVZw7Ivnsopzm4xMWV1dfUMiFGnA3fOyfNQRUXdOT01NRXr34kgDDsVi8TfCe6gThbW4vLwceQcc+pZNQezbt29MBwUnhYgCwfLW3Y2KVCwBh/3791/VP/SwEFEnoe+1FlTkLXpDrVb7jRBRR9qavyQxKUpMrl+/7mzbtm2ztup7hIg8aZd7Sgdrf5OYxFbBoVQqjYkl14wTdWFOMxLr1nJsa/AGHbhVtIqfFyJ6iO55/zLqbbFWsbXoDWzViTbC1PzSpUt/lZjFXsEbOFUneiC2qXmrWNfgD/0/KhSOCg/AEC3EOTVvFXuL3uA4zuLWrVvva6v+H0JkKd0+/v/Lly9/IoYYCzjcuHFjmutxshW2xHTdbfSCLGMtegO3zshSsW+JeTE2ZGtWqVTKukVwVSx8DDFZaQ7r7m6eLdYr4xUcqtWqo+3KUSGyw2+TCDcYXYM3c/fHdTneVxGinHKvEvujJCSxgIOGvMqhG+UVhmoa7v+TBCWyBm81MjKCo6wVIcoJPBF0cnJytyQskTV4q2KxiPW4I0T5MFcoFIwdZvGTioDj4Qka8oPCkFP21SfmeE9LCqSiRW9wt8/QrpeFKHsS2w5rJ1UBh7179w5rNUfIuUdOWYIz5rvTFG5IRYveDNfHahVHu84LUygrFvQ9m6rK3ZC6Ct7ASk4ZUQ933Ddu6FZqAw4MOaVcqsMNqQ44MOSUUqkPN6RuDd6qaU0+J0TpMJeFcEPqAw4DAwMzWsX/XRhySl59KywL4YbUt+gNukeOTzv0O+c/8FmIzEvdPncnmajgUK1WEfI5reTP4ZyvEBm0trZ2Xt97qdvn7iQzFbzZoUOH+u7evfu+Bv24EMXMvSosk4/iSvRy0W5du3ZNhoaGPqnVarie/IBk9BsVpZ5me+29pC/57EUmAw6O48jOnTur9+/fn9Uf/pt+bBai6CxouP9Tw31aMizzlY/DN4pB5oZp7WRmyNZO0/Btt37H/UBfWhOi7qAlP5XFYVo7uVq7Hj58WH766acThULh98KWncJZ0JnOe5cuXTolOZK74RRbdgoL265LS0tv5KVqN8vt9BlBX1lZGdN/PFRzTtnJC1ryD7K6BRZErt/4bsjxfPI/Cas5PWxOw/0/Gu6q5Fjmh2x+MIB7+eWXqxzAUZMHg7S8hxusaV25NiestXWQ9lsbgt1g3dq0aW3+a+Gk3RY4tPKhBntMLJPZk2zdwgm4oaGhqm6l/U3/0RHwXcIhXF5hSTa+vLz8xtTU1LhYyOo39ptvvinfffcd7hjzkazfqplBzwess6v6+T2b2nEvfEPLetuua/Nj+iW21MrCv5csm9Pl17uTk5NnhPhGbsagZ5q162w/fAN7YNAzpR7sUql0Ki2PC0oTvnF9MOipheGZo8H+C4Ptj2/YABpB1zfUr3V9Nyz8e0tKfXim/wYfXrhwwcqpeFh8o4bQdPT1mP7wv92X+XcYPwQbgf7Q9ql4WHxzdsE9FYcnoeILtu/xQBu+yPV1b/im7FFLVf+VrD+BhX+v3amHWv8uz9RqtXOs1r3jGzFCTWv1I/omPeK+zL9jf41KPaN/Z38pFovjrNbR4ZsvBmNjY7iSbVDDPqpv3F/pG7cirOzN6qHWD6yrJxnq+PANZ0CjjS8UCqPaeu53J/Fgy99//TJdVGn9O5hg+20OA25Y04AOIT+ib/pdOQt88zX3jv5vO6f/G2dZpZPBgCes0c5rhUfIK/qBCl+W9cl8Q1r/nR4KMyq0fp7QP/+8BrrKQCePAU+hltDv0rZ2h7a1Oz2CD3H+G3rdAcdxW+15/TM5+uNZ3caaYZjTiQHPGLT49+7dK2uoyhr4QQ3bsIbtMf2Mj7L7ywbxc+7X5Q6/pdP4Qv97fI1tKnzcRoDxGa/rNxsnj3cdJSIiIiIiIiKKwr8AiezFaY/9JL4AAAAASUVORK5CYII="}
+const IMGS = {}
+for (const k in IMG_SRC) { IMGS[k] = new Image(); IMGS[k].src = IMG_SRC[k] }
+const S = { steps: 3000, hr: 72, tilt: { x: 0, y: 0 }, strict: true, mouseGestures: true }
+const logBox = document.getElementById('log')
+function log(msg, cls) {
+  const d = document.createElement('div'); d.textContent = msg; if (cls) d.className = cls
+  logBox.appendChild(d); while (logBox.childNodes.length > 300) logBox.removeChild(logBox.firstChild)
+  logBox.scrollTop = logBox.scrollHeight
+}
+const _log = console.log.bind(console)
+console.log = (...a) => { _log(...a); log(a.join(' ')) }
+window.addEventListener('error', (e) => log('ERROR: ' + e.message, 'err'))
+const warned = {}
+function warnOnce(k, msg) { if (!warned[k]) { warned[k] = 1; log(msg, 'warn') } }
+
+const widgets = []
+const widget = new Proxy({}, { get: (t, k) => String(k) })
+const prop = new Proxy({}, { get: (t, k) => String(k) })
+const event = new Proxy({}, { get: (t, k) => String(k) })
+const align = new Proxy({}, { get: (t, k) => String(k) })
+const text_style = new Proxy({}, { get: (t, k) => String(k) })
+const hex = (c) => '#' + ((c >>> 0) & 0xffffff).toString(16).padStart(6, '0')
+const PROP_KEYS = { TEXT: 'text', COLOR: 'color', VISIBLE: 'visible', X: 'x', Y: 'y', W: 'w', H: 'h', SRC: 'src' }
+
+function makeCanvas(w) {
+  w.buf = document.createElement('canvas'); w.buf.width = w.w; w.buf.height = w.h
+  const g = w.buf.getContext('2d')
+  let paint = { color: 0xffffff, line_width: 1 }
+  const api = {
+    clear: () => g.clearRect(0, 0, w.buf.width, w.buf.height),
+    setPaint: (p) => { paint = Object.assign({}, paint, p) },
+    drawRect: (r) => {
+      if (S.strict && (r.x2 <= r.x1 || r.y2 <= r.y1)) throw null // what the watch appears to do with empty rects
+      g.fillStyle = hex(r.color !== undefined ? r.color : paint.color)
+      g.fillRect(r.x1, r.y1, Math.max(1, r.x2 - r.x1), Math.max(1, r.y2 - r.y1))
+    },
+    strokeRect: (r) => { g.strokeStyle = hex(r.color !== undefined ? r.color : paint.color); g.lineWidth = paint.line_width; g.strokeRect(r.x1, r.y1, r.x2 - r.x1, r.y2 - r.y1) },
+    drawCircle: (c) => { g.fillStyle = hex(c.color !== undefined ? c.color : paint.color); g.beginPath(); g.arc(c.center_x, c.center_y, c.radius, 0, 7); g.fill() },
+    strokeCircle: (c) => { g.strokeStyle = hex(c.color !== undefined ? c.color : paint.color); g.lineWidth = paint.line_width; g.beginPath(); g.arc(c.center_x, c.center_y, c.radius, 0, 7); g.stroke() },
+    drawLine: (l) => { g.strokeStyle = hex(l.color !== undefined ? l.color : paint.color); g.lineWidth = paint.line_width; g.beginPath(); g.moveTo(l.x1, l.y1); g.lineTo(l.x2, l.y2); g.stroke() }
+  }
+  Object.assign(w, api)
+}
+
+function createWidget(type, opts) {
+  const w = Object.assign({ type, visible: true, listeners: {} }, opts || {})
+  if (w.w === undefined && w.radius !== undefined && type === 'CIRCLE') w.w = w.radius * 2
+  if (type === 'CANVAS') makeCanvas(w)
+  w.setProperty = (p, v) => {
+    if (p === 'MORE') Object.assign(w, v)
+    else if (PROP_KEYS[p]) w[PROP_KEYS[p]] = v
+    else warnOnce('prop' + p, 'setProperty(prop.' + p + ') is not faked; ignored')
+  }
+  w.getProperty = (p) => (p === 'MORE' ? Object.assign({}, w) : w[PROP_KEYS[p] || p])
+  w.addEventListener = (ev, fn) => { w.listeners[ev] = fn }
+  w.removeEventListener = (ev) => { delete w.listeners[ev] }
+  widgets.push(w)
+  const handle = new Proxy(w, { get: (t, k) => (k in t ? t[k] : typeof k === 'string' ? () => warnOnce(type + k, type + '.' + k + '() is not faked; ignored') : undefined) })
+  RAW.set(handle, w)
+  return handle
+}
+const RAW = new WeakMap()
+function deleteWidget(w) { const i = widgets.indexOf(RAW.get(w) || w); if (i >= 0) widgets.splice(i, 1) }
+const setStatusBarVisible = () => {}
+const getDeviceInfo = () => ({ width: W0, height: H0, screenShape: 0 })
+const setPageBrightTime = () => {}, resetPageBrightTime = () => {}
+const px = (v) => v
+let gestureCb = null
+const onGesture = (o) => { gestureCb = o && o.callback }
+const offGesture = () => { gestureCb = null }
+const GESTURE_UP = 1, GESTURE_DOWN = 2, GESTURE_LEFT = 3, GESTURE_RIGHT = 4
+class LocalStorage {
+  getItem(k, d) { const v = localStorage.getItem(GAME + ':' + k); return v === null ? d : JSON.parse(v) }
+  setItem(k, v) { localStorage.setItem(GAME + ':' + k, JSON.stringify(v)) }
+  removeItem(k) { localStorage.removeItem(GAME + ':' + k) }
+  clear() { Object.keys(localStorage).filter((k) => k.startsWith(GAME + ':')).forEach((k) => localStorage.removeItem(k)) }
+}
+class Time {
+  getTime() { return Date.now() }
+  getFullYear() { return new Date().getFullYear() }
+  getMonth() { return new Date().getMonth() + 1 }
+  getDate() { return new Date().getDate() }
+  getDay() { return new Date().getDay() }
+  getHours() { return new Date().getHours() }
+  getMinutes() { return new Date().getMinutes() }
+  getSeconds() { return new Date().getSeconds() }
+  onPerMinute() {} onPerDay() {}
+}
+function sensorClass(name, current) {
+  return class {
+    constructor() { return new Proxy(this, { get: (t, k) => (k === 'getCurrent' ? current : k in t ? t[k] : () => 0) }) }
+  }
+}
+const Step = sensorClass('Step', () => S.steps)
+const HeartRate = sensorClass('HeartRate', () => S.hr)
+const Accelerometer = sensorClass('Accelerometer', () => ({ x: S.tilt.x * 980, y: S.tilt.y * 980, z: 980 }))
+class Vibrator { start() { flashVibe() } stop() {} setMode() {} getConfig() { return [] } }
+function __stub(name) {
+  if (/^[A-Z0-9_]+$/.test(name)) return name // constants
+  if (/^[A-Z]/.test(name)) { warnOnce(name, name + ' is faked: every method returns 0'); return sensorClass(name, () => 0) }
+  return (...a) => { warnOnce(name, name + '() is faked and does nothing'); return undefined }
+}
+let page = null
+function Page(p) { page = p }
+function App() {}
+function getApp() { return { _options: { globalData: {} } } }
+
+{
+// the game runs in its own block so its names never clash with the preview's
+const FREQ_MODE_NORMAL = __stub("FREQ_MODE_NORMAL")
+// ---- page\index.js ----
+// Tilt Arena — an arena survival game for Zepp OS (API 4.0, built for Amazfit Bip 6)
+//
+// How it plays:
+//   * Steer your hero around the arena. It shoots the nearest monster on its own.
+//   * Survive each wave until the timer runs out. Monsters drop gems.
+//   * Between waves, spend gems in the shop on upgrades (3 offers, reroll if you like).
+//   * Every 5th wave a big boss joins in. Lose all HP and the run is over.
+//
+// Controls (switch on the menu):
+//   * TILT  — tilt your wrist and the hero rolls that way, like a marble.
+//             Use CALIBRATE once: hold your wrist comfortably and tap SET LEVEL.
+//             If left/right or up/down feel reversed, use the FLIP buttons there.
+//   * TOUCH — touch or drag on the screen and the hero walks towards your finger.
+//             (Works in the simulator, which can't tilt.)
+//   The pill at the bottom (or a swipe right) pauses.
+//
+// Performance: no canvas at all — everything is a native widget moved with
+// setProperty only when it actually moved, and one invisible text layer
+// receives every touch.
+
+
+
+
+
+
+// ---------- tuning ----------
+const TICK_MS = 66 // about 15 updates per second
+const MAX_DT = 0.1
+const MARGIN = 18 // keep things this far from the screen edge
+const CORNER = 70 // the arena's rounded corners
+const MAX_ENEMIES = 16
+const MAX_BULLETS = 10
+const MAX_ENEMY_SHOTS = 6
+const MAX_GEMS = 16
+const WAVE_SECONDS = (wave) => Math.min(45, 25 + wave * 3)
+// tuned with a simulated player: a simple dodging bot reaches wave 5-8
+const SPAWN_EVERY = (wave) => Math.max(0.35, 2.2 - 0.12 * wave)
+const ENEMY_HP_SCALE = (wave) => 1 + 0.35 * (wave - 1)
+const ENEMY_DMG_SCALE = (wave) => 1 + 0.15 * (wave - 1) // monsters also hit harder each wave
+const BOSS_EVERY = 5
+const SHOP_LOCK_MS = 1200 // the shop ignores taps this long, so a tap meant for the fight can't buy something
+
+// economy (tuned with a simulated player: about 2 upgrades per wave early, 3-4 later)
+const OFFERS = 4 // upgrades offered in the shop each wave
+const GEM_GROWTH = 0.12 // gems are worth +12% more each wave
+const PRICE_GROWTH = 0.22 // prices rise 22% each wave
+const WAVE_BONUS = (wave) => 8 + wave // gems for surviving a wave
+
+// tilt: fraction of gravity (980 cm/s^2) needed for full speed, and the dead zone
+const GRAVITY = 980
+const TILT_FULL = 0.3 // about 17 degrees
+const TILT_DEAD = 0.05
+
+const ENEMY_TYPES = {
+  blob: { r: 11, color: 0x6fd36f, hp: 3, speed: 38, dmg: 1, gems: 1, from: 1 },
+  dart: { r: 8, color: 0xff9a3d, hp: 2, speed: 72, dmg: 1, gems: 1, from: 2 },
+  brute: { r: 16, color: 0xb05cff, hp: 12, speed: 26, dmg: 2, gems: 3, from: 3 },
+  spitter: { r: 11, color: 0xff5c8a, hp: 5, speed: 32, dmg: 1, gems: 2, from: 4, keepAway: 120, shootEvery: 2.5 },
+  boss: { r: 26, color: 0xffd84d, hp: 50, speed: 22, dmg: 3, gems: 15, from: 999 }
+}
+
+// Shop upgrades. cost = base, rising each wave. max = how many times it can be bought.
+const UPGRADES = [
+  { id: 'dmg', name: 'Sharp Shots', desc: '+1 damage', base: 10, apply: (p) => (p.dmg += 1) },
+  { id: 'rate', name: 'Quick Hands', desc: 'shoot 15% faster', base: 12, apply: (p) => (p.fireEvery *= 0.85) },
+  { id: 'speed', name: 'Light Boots', desc: '+12% move speed', base: 8, apply: (p) => (p.speed *= 1.12) },
+  { id: 'hp', name: 'Big Heart', desc: '+3 max HP, heal 3', base: 10, apply: (p) => { p.maxHp += 3; p.hp = Math.min(p.maxHp, p.hp + 3) } },
+  { id: 'multi', name: 'Twin Shot', desc: '+1 bullet per shot', base: 30, max: 3, apply: (p) => (p.multi += 1) },
+  { id: 'pierce', name: 'Piercing', desc: 'bullets pass 1 more foe', base: 20, max: 3, apply: (p) => (p.pierce += 1) },
+  { id: 'range', name: 'Long Sight', desc: '+25 range', base: 8, apply: (p) => (p.range += 25) },
+  { id: 'magnet', name: 'Magnet', desc: '+25 gem pickup radius', base: 6, apply: (p) => (p.magnet += 25) },
+  { id: 'crit', name: 'Lucky Eye', desc: '+6% critical hits', base: 12, apply: (p) => (p.crit += 0.06) },
+  { id: 'armor', name: 'Plating', desc: 'take 15% less damage', base: 12, max: 5, apply: (p) => (p.armor += 1) },
+  { id: 'regen', name: 'Mending', desc: 'heal 1 HP every 5s', base: 14, max: 3, apply: (p) => (p.regen += 1) },
+  { id: 'heal', name: 'Potion', desc: 'heal to full now', base: 8, repeat: true, apply: (p) => (p.hp = p.maxHp) }
+]
+
+// ---------- colours ----------
+const FLOOR = 0x121729
+const GRID = 0x1a2140
+const PANEL = 0x1c2547
+const PANEL_ON = 0x26346a
+const EDGE = 0x3a4680
+const WHITE = 0xffffff
+const DIM = 0x8f9bd6
+const LOCKED = 0x3a4166
+const GOLD = 0xffd84d
+const RED = 0xff5c5c
+const GREEN = 0x4dd06a
+const CYAN = 0x4de0ff
+const GEM = 0x7cf0ff
+
+// ---------- module state ----------
+let W, H, CX, CY
+let timer = null
+let storage = null
+let timeSensor = null
+let accel = null
+let vibrator = null
+let screen = 'menu' // menu | game | shop | calibrate
+let run = null // the current run
+let lastTick = 0
+let lastTapAt = 0
+let perfText = ''
+let touchTarget = null // where the finger is (TOUCH mode)
+
+// saved on the watch
+const settings = { mode: 'touch', best: 0, nx: 0, ny: 0, flipX: true, flipY: false, swap: false }
+
+const ui = {}
+
+// ---------- helpers ----------
+function now() {
+  try {
+    if (!timeSensor) timeSensor = new Time()
+    return timeSensor.getTime()
+  } catch (e) {
+    return Date.now()
+  }
+}
+
+function rnd(a, b) {
+  return a + Math.random() * (b - a)
+}
+
+function clamp(v, a, b) {
+  return v < a ? a : v > b ? b : v
+}
+
+// Keep a circle of radius r inside the arena (a rounded rectangle).
+function clampToArena(x, y, r) {
+  const left = MARGIN + r
+  const right = W - MARGIN - r
+  const top = MARGIN + r
+  const bottom = H - MARGIN - r
+  x = clamp(x, left, right)
+  y = clamp(y, top, bottom)
+  const c = Math.max(0, CORNER - r)
+  const cx = x < left + c ? left + c : x > right - c ? right - c : x
+  const cy = y < top + c ? top + c : y > bottom - c ? bottom - c : y
+  if (cx !== x && cy !== y) {
+    const d = Math.hypot(x - cx, y - cy)
+    if (d > c) {
+      x = cx + ((x - cx) / d) * c
+      y = cy + ((y - cy) / d) * c
+    }
+  }
+  return [x, y]
+}
+
+function buzz() {
+  try {
+    if (!vibrator) vibrator = new Vibrator()
+    vibrator.start()
+  } catch (e) {
+    // no vibration available: that's fine
+  }
+}
+
+// ---------- saving ----------
+function loadSettings() {
+  try {
+    const raw = storage.getItem('settings', '')
+    if (raw) Object.assign(settings, JSON.parse(raw))
+  } catch (e) {
+    console.log('TILT ARENA could not read settings: ' + e)
+  }
+}
+
+function saveSettings() {
+  try {
+    storage.setItem('settings', JSON.stringify(settings))
+  } catch (e) {
+    console.log('TILT ARENA could not save settings: ' + e)
+  }
+}
+
+// ---------- tilt ----------
+function startTilt() {
+  try {
+    if (!accel) {
+      accel = new Accelerometer()
+      accel.setFreqMode(FREQ_MODE_NORMAL)
+    }
+    accel.start()
+    return true
+  } catch (e) {
+    console.log('TILT ARENA no accelerometer: ' + e)
+    accel = null
+    return false
+  }
+}
+
+function stopTilt() {
+  try {
+    if (accel) accel.stop()
+  } catch (e) {
+    // ignore
+  }
+}
+
+// Raw reading mapped to screen directions (swap / flip as calibrated).
+function readTilt() {
+  if (!accel) return null
+  let r
+  try {
+    r = accel.getCurrent()
+  } catch (e) {
+    return null
+  }
+  if (!r || typeof r.x !== 'number') return null
+  let ax = settings.swap ? r.y : r.x
+  let ay = settings.swap ? r.x : r.y
+  if (settings.flipX) ax = -ax
+  if (settings.flipY) ay = -ay
+  return { ax, ay, raw: r }
+}
+
+// Turn tilt into a direction with strength 0..1 on each axis.
+function tiltVector() {
+  const t = readTilt()
+  if (!t) return [0, 0]
+  const axis = (v) => {
+    const f = v / GRAVITY
+    const s = Math.sign(f)
+    const m = Math.abs(f)
+    return m < TILT_DEAD ? 0 : s * Math.min(1, (m - TILT_DEAD) / (TILT_FULL - TILT_DEAD))
+  }
+  return [axis(t.ax - settings.nx), axis(t.ay - settings.ny)]
+}
+
+// ---------- widget wrappers (every update goes through a "did it change?" check) ----------
+function wrap(w, color) {
+  return { w, v: true, t: null, c: color === undefined ? null : color, m: null }
+}
+
+function mkText(x, y, w, h, size, color, alignH) {
+  return wrap(
+    createWidget(widget.TEXT, {
+      x, y, w, h,
+      text: '',
+      text_size: size,
+      color,
+      align_h: alignH === undefined ? align.CENTER_H : alignH,
+      align_v: align.CENTER_V
+    }),
+    color
+  )
+}
+
+function mkRect(x, y, w, h, color, radius) {
+  return wrap(createWidget(widget.FILL_RECT, { x, y, w, h, radius: radius || 0, color }))
+}
+
+function mkStroke(x, y, w, h, color, radius) {
+  return wrap(createWidget(widget.STROKE_RECT, { x, y, w, h, radius: radius || 0, line_width: 2, color }))
+}
+
+function mkCircle(x, y, r, color) {
+  return wrap(createWidget(widget.CIRCLE, { center_x: x, center_y: y, radius: r, color }))
+}
+
+function setText(o, value) {
+  if (o.t === value) return
+  o.t = value
+  o.w.setProperty(prop.TEXT, value)
+}
+
+function setColor(o, value) {
+  if (o.c === value) return
+  o.c = value
+  o.w.setProperty(prop.COLOR, value)
+}
+
+function setVisible(o, value) {
+  if (o.v === value) return
+  o.v = value
+  o.w.setProperty(prop.VISIBLE, value)
+}
+
+function setMore(o, sig, values) {
+  if (o.m === sig) return
+  o.m = sig
+  o.w.setProperty(prop.MORE, values)
+}
+
+function setCircle(o, x, y, r, color) {
+  x = Math.round(x)
+  y = Math.round(y)
+  setMore(o, x + ',' + y + ',' + r + ',' + color, { center_x: x, center_y: y, radius: r, color })
+}
+
+function setBox(o, b, color, radius, stroke) {
+  const values = { x: b.x, y: b.y, w: b.w, h: b.h, radius, color }
+  if (stroke) values.line_width = 2
+  setMore(o, b.x + ',' + b.y + ',' + b.w + ',' + b.h + ',' + color, values)
+}
+
+function inBox(x, y, b) {
+  return x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h
+}
+
+// A button = rounded panel + outline + label.
+function mkButton(x, y, w, h, size) {
+  return { box: { x, y, w, h }, bg: mkRect(x, y, w, h, PANEL, 12), edge: mkStroke(x, y, w, h, EDGE, 12), label: mkText(x, y, w, h, size, WHITE) }
+}
+
+function buttonParts(b) {
+  return [b.bg, b.edge, b.label]
+}
+
+function styleButton(b, label, highlight, enabled) {
+  setText(b.label, label)
+  setColor(b.label, enabled === false ? LOCKED : WHITE)
+  setBox(b.bg, b.box, highlight ? PANEL_ON : PANEL, 12)
+  setBox(b.edge, b.box, highlight ? GOLD : EDGE, 12, true)
+}
+
+function hit(x, y, b) {
+  return b.bg.v && inBox(x, y, b.box)
+}
+
+// ---------- a run ----------
+function newRun() {
+  run = {
+    wave: 0,
+    p: {
+      x: CX, y: CY, r: 11,
+      hp: 15, maxHp: 15, speed: 95, dmg: 3, fireEvery: 0.6, bulletSpeed: 230, range: 170,
+      multi: 1, pierce: 0, crit: 0.05, armor: 0, regen: 0, magnet: 70,
+      fireT: 0, hurtT: 0, regenT: 0
+    },
+    bought: {},
+    enemies: [],
+    shots: [],
+    enemyShots: [],
+    gems: [],
+    kills: 0,
+    paused: false,
+    over: false
+  }
+  run.gemCount = 0
+  startWave()
+}
+
+function startWave() {
+  run.wave++
+  run.time = WAVE_SECONDS(run.wave)
+  run.spawnT = 1
+  run.bossSpawned = false
+  run.p.x = CX
+  run.p.y = CY
+  run.p.hurtT = 1 // a moment of safety at the start
+  setScreen('game')
+}
+
+function freeSlot(list, max) {
+  return list.length < max
+}
+
+function spawnEnemy(typeId) {
+  if (!freeSlot(run.enemies, MAX_ENEMIES)) return
+  const t = ENEMY_TYPES[typeId]
+  // a random spot on the arena edge, not too close to the player
+  let x = 0
+  let y = 0
+  for (let tries = 0; tries < 8; tries++) {
+    const side = Math.floor(Math.random() * 4)
+    x = side === 0 ? MARGIN + t.r : side === 1 ? W - MARGIN - t.r : rnd(MARGIN + CORNER, W - MARGIN - CORNER)
+    y = side === 2 ? MARGIN + t.r : side === 3 ? H - MARGIN - t.r : rnd(MARGIN + CORNER, H - MARGIN - CORNER)
+    if (Math.hypot(x - run.p.x, y - run.p.y) > 140) break
+  }
+  const hp = t.hp * ENEMY_HP_SCALE(run.wave)
+  run.enemies.push({ type: typeId, t, x, y, hp, maxHp: hp, shootT: rnd(1, t.shootEvery || 1), flash: 0 })
+}
+
+function pickEnemyType() {
+  const options = Object.keys(ENEMY_TYPES).filter((k) => ENEMY_TYPES[k].from <= run.wave)
+  // later waves lean towards the tougher types
+  const weights = options.map((k) => (k === 'blob' ? 3 : 1 + run.wave * 0.15))
+  let r = Math.random() * weights.reduce((a, b) => a + b, 0)
+  for (let i = 0; i < options.length; i++) {
+    r -= weights[i]
+    if (r <= 0) return options[i]
+  }
+  return options[0]
+}
+
+function damagePlayer(amount) {
+  const p = run.p
+  if (p.hurtT > 0 || run.over) return
+  p.hp -= amount * Math.pow(0.85, p.armor)
+  p.hurtT = 0.7
+  buzz()
+  if (p.hp <= 0) {
+    p.hp = 0
+    run.over = true
+    if (run.wave > settings.best) {
+      settings.best = run.wave
+      saveSettings()
+    }
+    showDialog('GAME OVER', RED, 'reached wave ' + run.wave + '   best ' + settings.best, [
+      { label: 'TRY AGAIN', action: newRun },
+      { label: 'MENU', action: () => setScreen('menu') }
+    ])
+  }
+}
+
+function fire() {
+  const p = run.p
+  let target = null
+  let best = p.range
+  for (const e of run.enemies) {
+    const d = Math.hypot(e.x - p.x, e.y - p.y)
+    if (d < best) {
+      best = d
+      target = e
+    }
+  }
+  if (!target) return false
+  const base = Math.atan2(target.y - p.y, target.x - p.x)
+  for (let i = 0; i < p.multi; i++) {
+    if (!freeSlot(run.shots, MAX_BULLETS)) break
+    const a = base + (i - (p.multi - 1) / 2) * 0.22 // a small fan
+    run.shots.push({ x: p.x, y: p.y, vx: Math.cos(a) * p.bulletSpeed, vy: Math.sin(a) * p.bulletSpeed, life: p.range / p.bulletSpeed + 0.2, pierce: p.pierce, hitList: [] })
+  }
+  return true
+}
+
+// gems are worth more every wave, so income keeps up with rising prices
+function gemValue(e) {
+  return Math.max(1, Math.round(e.t.gems * (1 + GEM_GROWTH * (run.wave - 1))))
+}
+
+function killEnemy(e) {
+  run.kills++
+  const value = gemValue(e)
+  if (run.gems.length >= MAX_GEMS) {
+    run.gemCount += value // no room on the floor: collect straight away
+    return
+  }
+  run.gems.push({ x: e.x, y: e.y, value, pulled: false })
+}
+
+function updateGame(dt) {
+  const p = run.p
+
+  // --- move the player ---
+  let vx = 0
+  let vy = 0
+  if (settings.mode === 'tilt') {
+    const v = tiltVector()
+    vx = v[0] * p.speed
+    vy = v[1] * p.speed
+  } else if (touchTarget) {
+    const dx = touchTarget[0] - p.x
+    const dy = touchTarget[1] - p.y
+    const d = Math.hypot(dx, dy)
+    if (d > 4) {
+      const s = Math.min(p.speed, d / dt)
+      vx = (dx / d) * s
+      vy = (dy / d) * s
+    }
+  }
+  const moved = clampToArena(p.x + vx * dt, p.y + vy * dt, p.r)
+  p.x = moved[0]
+  p.y = moved[1]
+
+  // --- timers ---
+  p.hurtT = Math.max(0, p.hurtT - dt)
+  if (p.regen > 0) {
+    p.regenT += dt
+    if (p.regenT >= 5) {
+      p.regenT = 0
+      p.hp = Math.min(p.maxHp, p.hp + p.regen)
+    }
+  }
+  run.time -= dt
+
+  // --- spawn ---
+  run.spawnT -= dt
+  if (run.spawnT <= 0) {
+    run.spawnT = SPAWN_EVERY(run.wave)
+    spawnEnemy(pickEnemyType())
+    if (run.wave >= 3 && Math.random() < 0.3) spawnEnemy(pickEnemyType())
+  }
+  if (run.wave % BOSS_EVERY === 0 && !run.bossSpawned) {
+    run.bossSpawned = true
+    spawnEnemy('boss')
+  }
+
+  // --- shoot ---
+  p.fireT -= dt
+  if (p.fireT <= 0 && fire()) p.fireT = p.fireEvery
+
+  // --- player bullets ---
+  for (const s of run.shots) {
+    s.x += s.vx * dt
+    s.y += s.vy * dt
+    s.life -= dt
+    for (const e of run.enemies) {
+      if (e.hp <= 0 || s.hitList.indexOf(e) >= 0) continue
+      if (Math.hypot(e.x - s.x, e.y - s.y) < e.t.r + 4) {
+        const crit = Math.random() < p.crit
+        e.hp -= p.dmg * (crit ? 2 : 1)
+        e.flash = 0.12
+        s.hitList.push(e)
+        if (s.pierce-- <= 0) {
+          s.life = 0
+          break
+        }
+      }
+    }
+  }
+  run.shots = run.shots.filter((s) => s.life > 0 && s.x > 0 && s.x < W && s.y > 0 && s.y < H)
+
+  // --- enemies ---
+  for (const e of run.enemies) {
+    if (e.hp <= 0) continue
+    e.flash = Math.max(0, e.flash - dt)
+    const dx = p.x - e.x
+    const dy = p.y - e.y
+    const d = Math.hypot(dx, dy) || 1
+    const speed = e.t.speed * (1 + 0.02 * (run.wave - 1))
+    let dir = 1
+    if (e.t.keepAway && d < e.t.keepAway) dir = -0.6 // spitters back off
+    const m = clampToArena(e.x + (dx / d) * speed * dir * dt, e.y + (dy / d) * speed * dir * dt, e.t.r)
+    e.x = m[0]
+    e.y = m[1]
+    if (d < e.t.r + p.r) damagePlayer(e.t.dmg * ENEMY_DMG_SCALE(run.wave))
+    if (e.t.shootEvery) {
+      e.shootT -= dt
+      if (e.shootT <= 0) {
+        e.shootT = e.t.shootEvery
+        if (freeSlot(run.enemyShots, MAX_ENEMY_SHOTS)) run.enemyShots.push({ x: e.x, y: e.y, vx: (dx / d) * 95, vy: (dy / d) * 95, life: 4 })
+      }
+    }
+  }
+  for (const e of run.enemies) if (e.hp <= 0) killEnemy(e)
+  run.enemies = run.enemies.filter((e) => e.hp > 0)
+
+  // --- enemy bullets ---
+  for (const s of run.enemyShots) {
+    s.x += s.vx * dt
+    s.y += s.vy * dt
+    s.life -= dt
+    if (Math.hypot(s.x - p.x, s.y - p.y) < p.r + 4) {
+      damagePlayer(ENEMY_DMG_SCALE(run.wave))
+      s.life = 0
+    }
+  }
+  run.enemyShots = run.enemyShots.filter((s) => s.life > 0 && s.x > 0 && s.x < W && s.y > 0 && s.y < H)
+
+  // --- gems: pulled in by the magnet, then collected ---
+  for (const g of run.gems) {
+    const d = Math.hypot(p.x - g.x, p.y - g.y)
+    if (d < p.magnet) g.pulled = true
+    if (g.pulled) {
+      const step = Math.min(d, 260 * dt)
+      g.x += ((p.x - g.x) / (d || 1)) * step
+      g.y += ((p.y - g.y) / (d || 1)) * step
+    }
+    if (d < p.r + 4) g.taken = true
+  }
+  for (const g of run.gems) if (g.taken) run.gemCount += g.value
+  run.gems = run.gems.filter((g) => !g.taken)
+
+  // --- wave over? ---
+  if (run.time <= 0 && !run.over) endWave()
+}
+
+function endWave() {
+  // everything left on the floor is collected, monsters vanish, plus a bonus for surviving
+  for (const g of run.gems) run.gemCount += g.value
+  run.gems = []
+  run.bonus = WAVE_BONUS(run.wave)
+  run.gemCount += run.bonus
+  run.enemies = []
+  run.shots = []
+  run.enemyShots = []
+  if (run.wave > settings.best) {
+    settings.best = run.wave
+    saveSettings()
+  }
+  openShop()
+}
+
+// ---------- shop ----------
+function upgradeCost(u) {
+  return Math.round(u.base * (1 + PRICE_GROWTH * (run.wave - 1)))
+}
+
+function rollOffers() {
+  const pool = UPGRADES.filter((u) => !u.max || (run.bought[u.id] || 0) < u.max)
+  const offers = []
+  while (offers.length < OFFERS && pool.length) offers.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0])
+  run.offers = offers.map((u) => ({ u, sold: false }))
+}
+
+function openShop() {
+  run.shopLockUntil = now() + SHOP_LOCK_MS
+  run.rerolls = 0
+  rollOffers()
+  setScreen('shop')
+}
+
+function rerollCost() {
+  return 2 + run.wave + run.rerolls * 2
+}
+
+function buyOffer(i) {
+  const o = run.offers[i]
+  if (!o || o.sold) return
+  const c = upgradeCost(o.u)
+  if (run.gemCount < c) return
+  run.gemCount -= c
+  o.u.apply(run.p)
+  run.bought[o.u.id] = (run.bought[o.u.id] || 0) + 1
+  o.sold = true
+}
+
+function reroll() {
+  const c = rerollCost()
+  if (run.gemCount < c) return
+  run.gemCount -= c
+  run.rerolls++
+  rollOffers()
+}
+
+// ---------- dialog (pause / game over) ----------
+function showDialog(title, color, sub, buttons) {
+  const d = ui.dialog
+  ui.dialogOpen = true
+  ;[d.panel, d.edge, d.title, d.sub].forEach((o) => setVisible(o, true))
+  setText(d.title, title)
+  setColor(d.title, color)
+  setText(d.sub, sub)
+  d.actions = []
+  d.buttons.forEach((b, i) => {
+    const spec = buttons[i]
+    buttonParts(b).forEach((o) => setVisible(o, !!spec))
+    if (spec) {
+      styleButton(b, spec.label, i === 0)
+      d.actions[i] = spec.action
+    }
+  })
+}
+
+function hideDialog() {
+  const d = ui.dialog
+  ui.dialogOpen = false
+  ;[d.panel, d.edge, d.title, d.sub].forEach((o) => setVisible(o, false))
+  d.buttons.forEach((b) => buttonParts(b).forEach((o) => setVisible(o, false)))
+}
+
+function pause() {
+  if (screen !== 'game' || !run || run.over || run.paused) return
+  run.paused = true
+  const t = settings.mode === 'tilt' ? readTilt() : null
+  const tiltInfo = t ? '  tilt ' + Math.round(t.raw.x) + ',' + Math.round(t.raw.y) + ',' + Math.round(t.raw.z) : ''
+  showDialog('PAUSED', WHITE, (perfText || 'speed: measuring...') + tiltInfo, [
+    { label: 'RESUME', action: resume },
+    { label: 'MENU', action: () => setScreen('menu') }
+  ])
+}
+
+function resume() {
+  hideDialog()
+  run.paused = false
+  lastTick = now()
+}
+
+// ---------- screens ----------
+function setScreen(name) {
+  screen = name
+  hideDialog()
+  touchTarget = null
+  ui.groups.game.forEach((o) => setVisible(o, name === 'game'))
+  ui.groups.menu.forEach((o) => setVisible(o, name === 'menu'))
+  ui.groups.shop.forEach((o) => setVisible(o, name === 'shop'))
+  ui.groups.calibrate.forEach((o) => setVisible(o, name === 'calibrate'))
+  if (name !== 'game') hidePools()
+  if ((name === 'game' && settings.mode === 'tilt') || name === 'calibrate') startTilt()
+  else stopTilt()
+  if (name === 'menu') run = null
+  lastTick = now()
+  render()
+}
+
+function hidePools() {
+  for (const k of ['enemies', 'shots', 'enemyShots', 'gems']) ui.pools[k].forEach((o) => setVisible(o, false))
+}
+
+// ---------- input ----------
+function onTouch(kind, x, y) {
+  const t = now()
+  if (kind === 'down') {
+    if (t - lastTapAt < 40) return // ignore an accidental double event
+    lastTapAt = t
+  }
+
+  if (ui.dialogOpen) {
+    if (kind !== 'down') return
+    const d = ui.dialog
+    for (let i = 0; i < d.buttons.length; i++) {
+      if (hit(x, y, d.buttons[i])) return d.actions[i]()
+    }
+    return
+  }
+
+  if (screen === 'game') {
+    if (kind === 'down' && inBox(x, y, ui.pauseBox)) return pause()
+    if (settings.mode === 'touch') touchTarget = kind === 'up' ? touchTarget : [x, y]
+    return
+  }
+  if (kind !== 'down') return
+
+  if (screen === 'menu') {
+    if (hit(x, y, ui.play)) newRun()
+    else if (hit(x, y, ui.modeBtn)) {
+      settings.mode = settings.mode === 'tilt' ? 'touch' : 'tilt'
+      saveSettings()
+      render()
+    } else if (hit(x, y, ui.calBtn)) setScreen('calibrate')
+  } else if (screen === 'shop') {
+    if (now() < run.shopLockUntil) return // still locked: ignore stray taps from the fight
+    for (let i = 0; i < ui.offers.length; i++) {
+      if (inBox(x, y, ui.offers[i].box)) {
+        buyOffer(i)
+        return render()
+      }
+    }
+    if (hit(x, y, ui.rerollBtn)) {
+      reroll()
+      render()
+    } else if (hit(x, y, ui.nextBtn)) startWave()
+  } else if (screen === 'calibrate') {
+    if (hit(x, y, ui.cal.level)) {
+      const r = readTilt()
+      if (r) {
+        settings.nx = r.ax
+        settings.ny = r.ay
+        saveSettings()
+      }
+    } else if (hit(x, y, ui.cal.flipX)) {
+      settings.flipX = !settings.flipX
+      settings.nx = -settings.nx
+      saveSettings()
+    } else if (hit(x, y, ui.cal.flipY)) {
+      settings.flipY = !settings.flipY
+      settings.ny = -settings.ny
+      saveSettings()
+    } else if (hit(x, y, ui.cal.swap)) {
+      settings.swap = !settings.swap
+      settings.nx = 0
+      settings.ny = 0
+      saveSettings()
+    } else if (hit(x, y, ui.cal.back)) setScreen('menu')
+  }
+}
+
+// Swipe right normally closes the app; during a run it pauses instead.
+function onSwipe(ev) {
+  if (ev === GESTURE_RIGHT && screen === 'game') {
+    pause()
+    return true
+  }
+  return false
+}
+
+// ---------- building the screen (once) ----------
+function buildScreen() {
+  const bg = mkRect(0, 0, W, H, FLOOR, 0)
+  bg.w.addEventListener(event.CLICK_DOWN, (e) => handleTouch('down', e)) // backup if taps fall through
+
+  // --- arena floor: a faint grid and a border (static) ---
+  ui.groups = { game: [], menu: [], shop: [], calibrate: [] }
+  const g = ui.groups.game
+  for (let x = 60; x < W - 20; x += 55) g.push(mkRect(x, MARGIN + 30, 1, H - 2 * MARGIN - 60, GRID, 0))
+  for (let y = 60; y < H - 20; y += 55) g.push(mkRect(MARGIN + 30, y, W - 2 * MARGIN - 60, 1, GRID, 0))
+  g.push(mkStroke(MARGIN - 4, MARGIN - 4, W - 2 * MARGIN + 8, H - 2 * MARGIN + 8, EDGE, CORNER))
+
+  // --- pools of moving things (created hidden; borrowed as needed) ---
+  ui.pools = {
+    gems: Array.from({ length: MAX_GEMS }, () => mkCircle(-20, -20, 3, GEM)),
+    enemies: Array.from({ length: MAX_ENEMIES }, () => mkCircle(-40, -40, 10, WHITE)),
+    shots: Array.from({ length: MAX_BULLETS }, () => mkCircle(-20, -20, 4, GOLD)),
+    enemyShots: Array.from({ length: MAX_ENEMY_SHOTS }, () => mkCircle(-20, -20, 4, RED))
+  }
+  hidePoolsNow()
+
+  // --- player ---
+  ui.player = mkCircle(CX, CY, 11, CYAN)
+  ui.playerCore = mkCircle(CX, CY, 5, WHITE)
+  g.push(ui.player, ui.playerCore)
+
+  // --- HUD ---
+  ui.hpBack = mkRect(CX - 80, 14, 160, 10, 0x2a2f4a, 5)
+  ui.hpFill = mkRect(CX - 80, 14, 160, 10, GREEN, 5)
+  ui.hud = mkText(CX - 120, 26, 240, 24, 17, WHITE)
+  ui.gemText = mkText(CX - 120, 48, 240, 20, 14, GEM)
+  ui.pauseBox = { x: CX - 26, y: H - 25, w: 52, h: 22 }
+  const pb = ui.pauseBox
+  g.push(ui.hpBack, ui.hpFill, ui.hud, ui.gemText)
+  g.push(mkRect(pb.x, pb.y, pb.w, pb.h, PANEL, 11), mkRect(CX - 7, pb.y + 5, 4, 12, DIM, 0), mkRect(CX + 3, pb.y + 5, 4, 12, DIM, 0))
+
+  // --- menu ---
+  const m = ui.groups.menu
+  ui.title = mkText(0, 70, W, 56, 42, WHITE)
+  setText(ui.title, 'TILT ARENA')
+  ui.subtitle = mkText(0, 124, W, 24, 16, DIM)
+  setText(ui.subtitle, 'survive the waves')
+  ui.play = mkButton(CX - 110, 170, 220, 54, 24)
+  ui.modeBtn = mkButton(CX - 110, 234, 220, 48, 19)
+  ui.calBtn = mkButton(CX - 110, 292, 220, 48, 19)
+  ui.bestText = mkText(0, 352, W, 26, 17, GOLD)
+  m.push(ui.title, ui.subtitle, ui.bestText)
+  ;[ui.play, ui.modeBtn, ui.calBtn].forEach((b) => m.push(...buttonParts(b)))
+  // a little decoration: a hero surrounded by monsters
+  ;[[CX - 120, 150, 9, 0x6fd36f], [CX + 120, 150, 9, 0xff9a3d], [CX - 150, 100, 7, 0xff5c8a], [CX + 150, 100, 12, 0xb05cff]].forEach(([x, y, r, c]) =>
+    m.push(mkCircle(x, y, r, c))
+  )
+
+  // --- shop ---
+  const s = ui.groups.shop
+  ui.shopTitle = mkText(0, 18, W, 36, 26, GREEN)
+  ui.shopSub = mkText(0, 52, W, 24, 16, GEM)
+  s.push(ui.shopTitle, ui.shopSub)
+  ui.offers = [80, 140, 200, 260].map((y) => {
+    const box = { x: 30, y, w: 330, h: 54 }
+    const o = {
+      box,
+      bg: mkRect(box.x, box.y, box.w, box.h, PANEL, 12),
+      edge: mkStroke(box.x, box.y, box.w, box.h, EDGE, 12),
+      name: mkText(box.x + 14, box.y + 3, 220, 26, 18, WHITE, align.LEFT),
+      desc: mkText(box.x + 14, box.y + 28, 230, 22, 13, DIM, align.LEFT),
+      cost: mkText(box.x + box.w - 110, box.y, 98, box.h, 17, GEM, align.RIGHT)
+    }
+    s.push(o.bg, o.edge, o.name, o.desc, o.cost)
+    return o
+  })
+  ui.rerollBtn = mkButton(30, 326, 150, 46, 18)
+  ui.nextBtn = mkButton(190, 326, 170, 46, 20)
+  ui.statsText = mkText(0, 380, W, 22, 13, DIM)
+  s.push(...buttonParts(ui.rerollBtn), ...buttonParts(ui.nextBtn), ui.statsText)
+
+  // --- calibration ---
+  const c = ui.groups.calibrate
+  ui.cal = {
+    title: mkText(0, 18, W, 34, 24, WHITE),
+    help: mkText(30, 50, W - 60, 40, 14, DIM),
+    raw: mkText(0, 92, W, 22, 14, GEM),
+    ringOuter: mkCircle(CX, 190, 62, 0x1a2140),
+    ringMid: mkCircle(CX, 190, 40, FLOOR),
+    ball: mkCircle(CX, 190, 9, CYAN),
+    level: mkButton(CX - 110, 266, 220, 46, 19),
+    flipX: mkButton(30, 320, 100, 44, 16),
+    flipY: mkButton(145, 320, 100, 44, 16),
+    swap: mkButton(260, 320, 100, 44, 16),
+    back: mkButton(CX - 70, 372, 140, 44, 18)
+  }
+  setText(ui.cal.title, 'CALIBRATE TILT')
+  setText(ui.cal.help, 'hold your wrist comfortably, tap SET LEVEL')
+  c.push(ui.cal.title, ui.cal.help, ui.cal.raw, ui.cal.ringOuter, ui.cal.ringMid, ui.cal.ball)
+  ;['level', 'flipX', 'flipY', 'swap', 'back'].forEach((k) => c.push(...buttonParts(ui.cal[k])))
+
+  // --- dialog (pause / game over) ---
+  ui.dialog = {
+    panel: mkRect(CX - 140, 110, 280, 210, PANEL, 16),
+    edge: mkStroke(CX - 140, 110, 280, 210, EDGE, 16),
+    title: mkText(CX - 140, 122, 280, 40, 30, WHITE),
+    sub: wrap(
+      createWidget(widget.TEXT, {
+        x: CX - 135, y: 164, w: 270, h: 34, text: '', text_size: 13, color: DIM,
+        align_h: align.CENTER_H, align_v: align.CENTER_V, text_style: text_style.WRAP
+      }),
+      DIM
+    ),
+    buttons: [0, 1].map((i) => mkButton(CX - 100, 206 + i * 54, 200, 46, 20)),
+    actions: []
+  }
+
+  // --- touch layer: an empty full-screen text widget on top of everything ---
+  // (no canvas: canvases need a big block of pixel memory)
+  ui.touch = createWidget(widget.TEXT, { x: 0, y: 0, w: W, h: H, text: '', text_size: 10, color: FLOOR })
+  ui.touch.addEventListener(event.CLICK_DOWN, (e) => handleTouch('down', e))
+  ui.touch.addEventListener(event.MOVE, (e) => handleTouch('move', e))
+  ui.touch.addEventListener(event.CLICK_UP, (e) => handleTouch('up', e))
+}
+
+function hidePoolsNow() {
+  for (const k in ui.pools) ui.pools[k].forEach((o) => setVisible(o, false))
+}
+
+function handleTouch(kind, e) {
+  try {
+    if (!e || typeof e.x !== 'number' || typeof e.y !== 'number') return
+    onTouch(kind, e.x, e.y)
+  } catch (err) {
+    showError('touch', err)
+  }
+}
+
+// ---------- drawing (only what changed) ----------
+function renderPool(pool, items, draw) {
+  for (let i = 0; i < pool.length; i++) {
+    const item = items[i]
+    setVisible(pool[i], !!item)
+    if (item) draw(pool[i], item)
+  }
+}
+
+function renderGame() {
+  const p = run.p
+  const blink = p.hurtT > 0 && Math.floor(p.hurtT * 10) % 2 === 0
+  setCircle(ui.player, p.x, p.y, p.r, blink ? RED : CYAN)
+  setCircle(ui.playerCore, p.x, p.y, 5, WHITE)
+
+  renderPool(ui.pools.gems, run.gems, (o, g) => setCircle(o, g.x, g.y, g.value >= 8 ? 5 : g.value >= 3 ? 4 : 3, g.value >= 8 ? GOLD : GEM))
+  renderPool(ui.pools.enemies, run.enemies, (o, e) => setCircle(o, e.x, e.y, e.t.r, e.flash > 0 ? WHITE : e.t.color))
+  renderPool(ui.pools.shots, run.shots, (o, s) => setCircle(o, s.x, s.y, 4, GOLD))
+  renderPool(ui.pools.enemyShots, run.enemyShots, (o, s) => setCircle(o, s.x, s.y, 4, RED))
+
+  const frac = clamp(p.hp / p.maxHp, 0, 1)
+  const w = Math.round(160 * frac)
+  setVisible(ui.hpFill, w >= 2)
+  if (w >= 2) setBox(ui.hpFill, { x: CX - 80, y: 14, w, h: 10 }, frac > 0.3 ? GREEN : RED, 5)
+  const secs = Math.max(0, Math.ceil(run.time))
+  const boss = run.wave % BOSS_EVERY === 0 ? '  BOSS' : ''
+  setText(ui.hud, 'WAVE ' + run.wave + '   ' + Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0') + boss)
+  setText(ui.gemText, run.gemCount + ' gems')
+}
+
+function renderMenu() {
+  styleButton(ui.play, 'PLAY', true)
+  styleButton(ui.modeBtn, 'CONTROLS: ' + settings.mode.toUpperCase(), false)
+  styleButton(ui.calBtn, 'CALIBRATE TILT', false, settings.mode === 'tilt')
+  setText(ui.bestText, settings.best > 0 ? 'BEST: WAVE ' + settings.best : 'tip: TOUCH works in the simulator')
+}
+
+function renderShop() {
+  setText(ui.shopTitle, 'WAVE ' + run.wave + ' CLEARED')
+  setText(ui.shopSub, run.gemCount + ' gems (+' + run.bonus + ' bonus)    HP ' + Math.ceil(run.p.hp) + '/' + run.p.maxHp)
+  const lockLeft = run.shopLockUntil - now()
+  const locked = lockLeft > 0
+  run.offers.forEach((o, i) => {
+    const w = ui.offers[i]
+    const c = upgradeCost(o.u)
+    const can = !locked && !o.sold && run.gemCount >= c
+    setBox(w.bg, w.box, can ? PANEL_ON : PANEL, 12)
+    setBox(w.edge, w.box, can ? GOLD : EDGE, 12, true)
+    setText(w.name, o.sold ? 'SOLD' : o.u.name + ((run.bought[o.u.id] || 0) > 0 ? ' +' + run.bought[o.u.id] : ''))
+    setColor(w.name, o.sold ? LOCKED : can ? WHITE : DIM)
+    setText(w.desc, o.sold ? '' : o.u.desc)
+    setText(w.cost, o.sold ? '' : c + ' gems')
+    setColor(w.cost, can ? GEM : DIM)
+  })
+  for (let i = run.offers.length; i < ui.offers.length; i++) {
+    const w = ui.offers[i]
+    setText(w.name, '')
+    setText(w.desc, '')
+    setText(w.cost, '')
+  }
+  const rc = rerollCost()
+  styleButton(ui.rerollBtn, 'REROLL ' + rc, false, !locked && run.gemCount >= rc)
+  if (locked) styleButton(ui.nextBtn, 'WAIT ' + (lockLeft / 1000).toFixed(1), false, false)
+  else styleButton(ui.nextBtn, 'NEXT WAVE', true)
+  const p = run.p
+  setText(
+    ui.statsText,
+    'DMG ' + p.dmg + '  RATE ' + (1 / p.fireEvery).toFixed(1) + '/s  SPD ' + Math.round(p.speed) + '  x' + p.multi + '  ARMOR ' + p.armor
+  )
+}
+
+function renderCalibrate() {
+  const t = readTilt()
+  if (!t) {
+    setText(ui.cal.raw, 'no tilt sensor found here - use TOUCH')
+    setCircle(ui.cal.ball, CX, 190, 9, LOCKED)
+  } else {
+    setText(ui.cal.raw, 'raw  x ' + Math.round(t.raw.x) + '   y ' + Math.round(t.raw.y) + '   z ' + Math.round(t.raw.z))
+    const v = tiltVector()
+    setCircle(ui.cal.ball, CX + v[0] * 52, 190 + v[1] * 52, 9, CYAN)
+  }
+  styleButton(ui.cal.level, 'SET LEVEL', true)
+  styleButton(ui.cal.flipX, settings.flipX ? 'X: FLIP' : 'X: NORM', false)
+  styleButton(ui.cal.flipY, settings.flipY ? 'Y: FLIP' : 'Y: NORM', false)
+  styleButton(ui.cal.swap, settings.swap ? 'SWAPPED' : 'SWAP XY', false)
+  styleButton(ui.cal.back, 'BACK', false)
+}
+
+function render() {
+  if (screen === 'game' && run) renderGame()
+  else if (screen === 'menu') renderMenu()
+  else if (screen === 'shop' && run) renderShop()
+  else if (screen === 'calibrate') renderCalibrate()
+}
+
+// ---------- main loop ----------
+const perf = { start: 0, ticks: 0, work: 0 }
+
+function tick() {
+  try {
+    const t = now()
+    let dt = (t - lastTick) / 1000
+    lastTick = t
+    if (dt < 0) dt = 0
+    if (dt > MAX_DT) dt = MAX_DT
+
+    if (screen === 'game' && run && !run.paused && !run.over) {
+      updateGame(dt)
+      if (screen === 'game') renderGame()
+
+      perf.ticks++
+      perf.work += now() - t
+      if (t - perf.start >= 1000) {
+        perfText = 'speed ' + (perf.work / perf.ticks).toFixed(1) + ' ms, ' + perf.ticks + '/s'
+        perf.start = t
+        perf.ticks = 0
+        perf.work = 0
+      }
+    } else if (screen === 'calibrate') {
+      renderCalibrate()
+    } else if (screen === 'shop' && run && t < run.shopLockUntil + 300) {
+      renderShop() // count down the lock, then one last redraw to light the buttons up
+    }
+  } catch (e) {
+    if (timer !== null) clearInterval(timer)
+    timer = null
+    showError('tick', e)
+  }
+}
+
+// DEBUG: shows what went wrong directly on the watch screen
+let step = 'start'
+function showError(where, e) {
+  const stack = e && e.stack ? String(e.stack).split('\n').slice(0, 4).join('\n') : ''
+  const msg = where + ' / ' + step + ': ' + (e && e.message ? e.message : String(e)) + '\n' + stack
+  console.log('TILT ARENA ERROR ' + msg)
+  createWidget(widget.TEXT, { x: 15, y: 40, w: (W || 390) - 30, h: 380, text: msg, text_size: 18, color: RED, text_style: text_style.WRAP })
+}
+
+// ---------- page ----------
+Page({
+  build() {
+    try {
+      step = 'getDeviceInfo'
+      const info = getDeviceInfo()
+      W = info.width
+      H = info.height
+      CX = W / 2
+      CY = H / 2
+
+      step = 'setStatusBarVisible'
+      try {
+        setStatusBarVisible(false)
+      } catch (e) {
+        console.log('TILT ARENA could not hide status bar: ' + e)
+      }
+
+      step = 'setPageBrightTime'
+      setPageBrightTime({ brightTime: 600000 }) // keep the screen on while playing (10 min)
+
+      step = 'load settings'
+      storage = new LocalStorage()
+      loadSettings()
+
+      step = 'build screen'
+      buildScreen()
+      setScreen('menu')
+
+      step = 'onGesture'
+      try {
+        onGesture({ callback: onSwipe })
+      } catch (e) {
+        console.log('TILT ARENA could not listen for swipes: ' + e)
+      }
+
+      step = 'setInterval'
+      lastTick = now()
+      perf.start = lastTick
+      timer = setInterval(tick, TICK_MS)
+      step = 'running'
+    } catch (e) {
+      showError('build', e)
+    }
+  },
+
+  onDestroy() {
+    if (timer !== null) clearInterval(timer)
+    stopTilt()
+    try {
+      offGesture()
+    } catch (e) {
+      // nothing to undo
+    }
+    if (run && run.wave > settings.best) {
+      settings.best = run.wave
+      saveSettings()
+    }
+    resetPageBrightTime()
+  }
+})
+
+}
+
+// ================= screen, input and controls =================
+const scr = document.getElementById('s'), g = scr.getContext('2d')
+function wrapLines(text, w) {
+  const out = []
+  String(text).split('\n').forEach((para) => {
+    let line = ''
+    para.split(' ').forEach((word) => {
+      const t = line ? line + ' ' + word : word
+      if (g.measureText(t).width > w && line) { out.push(line); line = word } else line = t
+    })
+    out.push(line)
+  })
+  return out
+}
+function draw() {
+  g.save(); g.fillStyle = '#000'; g.fillRect(0, 0, W0, H0)
+  g.beginPath(); g.roundRect(0, 0, W0, H0, CORNER); g.clip()
+  for (const w of widgets) {
+    if (!w.visible) continue
+    const t = w.type
+    if (t === 'FILL_RECT') { g.fillStyle = hex(w.color); g.beginPath(); g.roundRect(w.x, w.y, w.w, w.h, w.radius || 0); g.fill() }
+    else if (t === 'STROKE_RECT') { g.strokeStyle = hex(w.color); g.lineWidth = w.line_width || 1; g.beginPath(); g.roundRect(w.x, w.y, w.w, w.h, w.radius || 0); g.stroke() }
+    else if (t === 'CIRCLE') { g.fillStyle = hex(w.color); g.beginPath(); g.arc(w.center_x, w.center_y, w.radius, 0, 7); g.fill() }
+    else if (t === 'CANVAS') g.drawImage(w.buf, w.x, w.y)
+    else if (t === 'IMG' || t === 'IMAGE') {
+      const im = IMGS[String(w.src || '').replace(/^\//, '')]
+      if (im && im.complete) g.drawImage(im, w.x, w.y)
+      else if (w.src) warnOnce('img' + w.src, 'image not found: ' + w.src)
+    } else if ((t === 'TEXT' || t === 'BUTTON') && w.text !== undefined && w.text !== '') {
+      g.fillStyle = hex(w.color !== undefined ? w.color : 0xffffff); g.font = (w.text_size || 20) + 'px Roboto, Arial, sans-serif'; g.textBaseline = 'middle'
+      const lines = w.text_style === 'WRAP' ? wrapLines(w.text, w.w) : String(w.text).split('\n')
+      const lh = (w.text_size || 20) * 1.25
+      const blockH = lines.length * lh
+      const top = w.align_v === 'CENTER_V' ? w.y + (w.h - blockH) / 2 : w.align_v === 'BOTTOM' ? w.y + w.h - blockH : w.y
+      g.textAlign = w.align_h === 'LEFT' ? 'left' : w.align_h === 'RIGHT' ? 'right' : w.align_h === 'CENTER_H' ? 'center' : 'left'
+      const x = g.textAlign === 'left' ? w.x : g.textAlign === 'right' ? w.x + w.w : w.x + w.w / 2
+      g.save(); g.beginPath(); g.rect(w.x, w.y, w.w, w.h); g.clip()
+      lines.forEach((l, i) => g.fillText(l, x, top + lh * i + lh / 2))
+      g.restore()
+    }
+  }
+  g.restore()
+  requestAnimationFrame(draw)
+}
+
+function hit(w, x, y) {
+  if (w.type === 'CIRCLE') return Math.hypot(x - w.center_x, y - w.center_y) <= w.radius
+  return x >= w.x && y >= w.y && x < w.x + (w.w || 0) && y < w.y + (w.h || 0)
+}
+function target(ev, x, y) {
+  for (let i = widgets.length - 1; i >= 0; i--) {
+    const w = widgets[i]
+    if (w.visible && w.listeners[ev] && hit(w, x, y)) return w
+  }
+  return null
+}
+const pos = (e) => { const r = scr.getBoundingClientRect(); return { x: Math.round((e.clientX - r.left) * W0 / r.width), y: Math.round((e.clientY - r.top) * H0 / r.height) } }
+let downAt = null, downW = null
+function call(fn, p) { try { fn(p) } catch (e) { log('ERROR in touch handler: ' + e, 'err') } }
+scr.addEventListener('pointerdown', (e) => {
+  scr.setPointerCapture(e.pointerId)
+  const p = pos(e); downAt = p
+  downW = target('CLICK_DOWN', p.x, p.y) || target('CLICK_UP', p.x, p.y)
+  if (downW && downW.listeners.CLICK_DOWN) call(downW.listeners.CLICK_DOWN, p)
+})
+scr.addEventListener('pointermove', (e) => { if (downAt && downW && downW.listeners.MOVE) call(downW.listeners.MOVE, pos(e)) })
+scr.addEventListener('pointerup', (e) => {
+  if (!downAt) return
+  const p = pos(e), dx = p.x - downAt.x, dy = p.y - downAt.y
+  if (downW && downW.listeners.CLICK_UP) call(downW.listeners.CLICK_UP, p)
+  downAt = null
+  if (S.mouseGestures && Math.hypot(dx, dy) > 60) gesture(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up')
+})
+function gesture(dir) {
+  const code = { up: GESTURE_UP, down: GESTURE_DOWN, left: GESTURE_LEFT, right: GESTURE_RIGHT }[dir]
+  let handled = false
+  try { handled = gestureCb ? gestureCb(code) : false } catch (e) { log('ERROR in gesture handler: ' + e, 'err') }
+  if (!handled && dir === 'right') log('swipe right not handled: on the watch this would close the app', 'warn')
+}
+function flashVibe() { const v = document.getElementById('vibe'); v.style.opacity = 1; setTimeout(() => (v.style.opacity = 0), 150) }
+
+// controls
+const keys = { w: 'up', a: 'left', s: 'down', d: 'right' }
+const held = {}
+function updTilt() { S.tilt.x = (held.ArrowRight ? 0.4 : 0) - (held.ArrowLeft ? 0.4 : 0); S.tilt.y = (held.ArrowDown ? 0.4 : 0) - (held.ArrowUp ? 0.4 : 0); document.getElementById('tilt').textContent = 'x ' + S.tilt.x + '  y ' + S.tilt.y }
+window.addEventListener('keydown', (e) => {
+  if (keys[e.key]) gesture(keys[e.key])
+  if (e.key.startsWith('Arrow')) { held[e.key] = true; updTilt(); e.preventDefault() }
+})
+window.addEventListener('keyup', (e) => { if (e.key.startsWith('Arrow')) { held[e.key] = false; updTilt() } })
+document.querySelectorAll('[data-g]').forEach((b) => b.addEventListener('click', () => gesture(b.dataset.g)))
+document.getElementById('steps').addEventListener('click', () => { S.steps += 100; document.getElementById('stepv').textContent = S.steps })
+document.getElementById('strict').addEventListener('change', (e) => (S.strict = e.target.checked))
+document.getElementById('mg').addEventListener('change', (e) => (S.mouseGestures = e.target.checked))
+document.getElementById('zoom').addEventListener('change', (e) => { scr.style.width = W0 * e.target.value + 'px'; scr.style.height = H0 * e.target.value + 'px' })
+document.getElementById('reset').addEventListener('click', () => { if (confirm('Delete the saved data of ' + GAME + ' in this browser?')) { new LocalStorage().clear(); location.reload() } })
+document.getElementById('reload').addEventListener('click', () => location.reload())
+document.getElementById('stepv').textContent = S.steps
+
+try {
+  if (page && page.onInit) page.onInit()
+  if (page && page.build) page.build()
+  else log('This page never called Page({ build })', 'err')
+} catch (e) { log('ERROR in build: ' + e, 'err') }
+requestAnimationFrame(draw)
+window.addEventListener('beforeunload', () => { try { page && page.onDestroy && page.onDestroy() } catch (e) {} })
+
+</script></body></html>

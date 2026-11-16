@@ -1,0 +1,18 @@
+# dependencies and build output
+node_modules/
+dist/
+package-lock.json
+yarn.lock
+
+# logs
+*.log
+
+# editor / OS / local tooling
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.claude/
+
+# generated previews (published copies live in docs/play)
+tools/preview/

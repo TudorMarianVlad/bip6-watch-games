@@ -1,0 +1,2605 @@
+// Wristlings — a creature-collecting, turn-based battle game for Zepp OS
+// (API 4.0, built for the Amazfit Bip 6, 390 x 450).
+//
+// THE LOOP
+//   * Walking earns TRACKS (1 per 250 steps today, plus 1 free every 90 min, max 6).
+//     Spend a track on EXPLORE to meet a wild Wristling.
+//   * Battles are 1 vs 1 and turn based: pick one of 3 moves. Elements matter
+//     (FIRE beats GRASS, WATER beats FIRE ...). The move buttons say STRONG / WEAK.
+//   * Weaken a wild one, then CATCH it with a charm: tap when the shrinking ring
+//     meets the gold ring. Lower HP + better timing = better odds.
+//   * Up to 3 Wristlings fight in your party. Winning gives XP; at the right
+//     level a happy Wristling evolves.
+//
+// YOUR BODY PLAYS TOO
+//   * Steps: tracks, berries (every 800) and charms (every 1,500).
+//   * Heart rate: minutes today well above your resting pulse become TRAIN XP.
+//   * Sleep: a good night heals the whole team; enough REM sleep can bring a
+//     rare Dream visitor in the morning.
+//   * Time: Shadow Wristlings only come out at night (20:00 - 06:00).
+//
+// CARE
+//   * Wristlings get hungry over time (FOOD). Feed them berries; each species has
+//     a favourite berry that makes it much happier (JOY). Happy = +10% power,
+//     hungry = -10%. A Wristling must be happy enough to evolve.
+//
+// Screens are rebuilt from scratch when you move between them (one touch layer
+// on top catches every tap), and only changed values are pushed to widgets.
+
+import { createWidget, deleteWidget, widget, event, prop, align, text_style, setStatusBarVisible } from '@zos/ui'
+import { getDeviceInfo } from '@zos/device'
+import { LocalStorage } from '@zos/storage'
+import { Time, Step, HeartRate, Sleep, Weather, Calorie, Pai, Screen, Compass, Vibrator, VIBRATOR_SCENE_SHORT_LIGHT, VIBRATOR_SCENE_SHORT_STRONG, VIBRATOR_SCENE_SHORT_MIDDLE } from '@zos/sensor'
+import { onGesture, offGesture, GESTURE_LEFT, GESTURE_RIGHT } from '@zos/interaction'
+import { ART } from './uiart'
+import { ELEMENTS, STRONG, MOVES, SPECIES, BOOK, STARTERS, BERRIES, effectiveness, FAV_FULL_BONUS, FAV_JOY_BONUS } from './data'
+
+// TEST MODE: shows +1K STEPS and +1 HOUR buttons on the den so the game can be
+// tried without walking (or without a watch). Set to false before release.
+const TEST_MODE = true
+
+// ---------- balance ----------
+const TICK_MS = 50
+const STEPS_PER_TRACK = 250
+const TRACK_CAP = 6
+const FREE_TRACK_MIN = 90 // a free track every 90 minutes, so you can play without walking
+const STEPS_PER_BERRY = 800
+const STEPS_PER_CHARM = 1500
+const START_TRACKS = 3
+const START_CHARMS = 5
+const STARTER_LV = 5
+const MAX_LV = 40
+const PARTY_MAX = 3
+const FULL_DECAY_PER_HOUR = 4 // FOOD 100 -> 0 in 25 hours
+const HUNGRY_BELOW = 25
+const HAPPY_FROM = 70
+const MOOD_EFFECT = 0.1 // happy: +10% attack and defence, hungry: -10%
+const TRAIN_XP_BASE = 3 // TRAIN: each active minute gives (this + level) XP
+const GOOD_SLEEP_MIN = 360 // a night this long (minutes) fully heals the team
+const WILD_EVOLVED_LV = 13 // evolved forms show up wild once your lead is this level
+const WILD_EVOLVED_CHANCE = 0.18 // ...and then this often
+const AI_REST_BELOW = 0.35 // wild ones that know Rest use it below this much HP
+const EVOLVE_JOY = 40
+const HP_REGEN_PER_MIN = 0.03 // 3% of max HP per minute outside battle
+const RESTS_PER_BATTLE = 2
+const CRIT_CHANCE = 1 / 16
+const CRIT_MULT = 1.5
+const SUPER_MULT = 1.5 // also in data.js effectiveness()
+const WEAK_MULT = 0.67
+const SAME_ELEMENT_BONUS = 1.2 // a move of the creature's own element
+const GUARD_TAKEN = 0.4 // a guarded hit does 40% damage
+const REST_HEAL = 0.35
+const FEED_HEAL = 0.2
+const BERRY_DROP = 0.35 // chance of a berry after a win
+const CHARM_DROP = 0.15 // chance of a charm after a win
+// catching: chance = (BASE + HP * (missing HP) + timing bonus) x the rarity's mult
+const CATCH_BASE = 0.15
+const CATCH_HP = 0.5
+const CATCH_PERFECT = 0.3
+const CATCH_GOOD = 0.15
+const CATCH_MAX = 0.9 // never better than this
+const CATCH_OVERLEVEL = 3
+const CATCH_OVERLEVEL_PENALTY = 0.1
+const SAVE_EVERY_MS = 10000
+// rare Wristlings
+const RARE_NOON_CHANCE = 0.08 // Solarion: only between 11:00 and 14:00
+const RARE_WALK_STEPS = 10000 // Boulderon: only once you walked this much today
+const RARE_WALK_CHANCE = 0.1
+// catching: tap the moving ring when it meets the gold ring
+const RING_MAX = 120
+const RING_MIN = 24
+const RING_TARGET = 66
+const PERFECT_PX = 6
+const GOOD_PX = 14
+// rarity tiers: rarer ones are harder to catch and their ring shrinks faster
+//   common: everyday base forms. uncommon: evolved forms, night-only and real-world ones.
+//   rare: the three rare ones.
+const RARITY = {
+  common: { name: 'COMMON', mult: 1, ringMs: 1300 },
+  uncommon: { name: 'UNCOMMON', mult: 0.8, ringMs: 1100 },
+  rare: { name: 'RARE', mult: 0.55, ringMs: 950 }
+}
+const RARITY_COLOR = { common: 0xc8c0ff, uncommon: 0x4db8ff, rare: 0xffd84d }
+
+// ---------- colours ----------
+const BG = 0x141026
+const INK = 0x0c0a1c
+const WHITE = 0xffffff
+const DIM = 0x8a82b8
+const RED = 0xff5c5c
+const GOLD = 0xffd84d
+const GREEN = 0x4dd06a
+const ORANGE = 0xffa03d
+const PINK = 0xff7ac8
+const PURPLE = 0x9b6cff
+const BLUE = 0x4db8ff
+const LILAC = 0xc8c0ff // soft text on dark panels
+
+// ---------- state ----------
+let W = 390
+let H = 450
+let CX = 195
+let st = null
+let storage = null
+let timer = null
+let lastSave = 0
+let lastMinute = 0
+let lastSensor = 0
+let lastHeart = 0
+let step = 'start'
+const notices = [] // messages shown (one screen each) before the den
+let screen = { name: '', ws: [], taps: [], ui: {} }
+
+// ---------- small helpers ----------
+let timeSensor = null
+let timeOffset = 0 // test mode: how far the +1 HOUR button moved the clock
+function now() {
+  try {
+    if (!timeSensor) timeSensor = new Time()
+    return timeSensor.getTime() + timeOffset
+  } catch (e) {
+    return Date.now() + timeOffset
+  }
+}
+function dayKey(t) {
+  const d = new Date(t)
+  return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate()
+}
+function hourOf(t) {
+  return new Date(t).getHours()
+}
+function isNight() {
+  const h = hourOf(now())
+  return h >= 20 || h < 6
+}
+function clamp(v, a, b) {
+  return Math.max(a, Math.min(b, v))
+}
+function randInt(a, b) {
+  return a + Math.floor(Math.random() * (b - a + 1))
+}
+function pick(arr) {
+  return arr[Math.floor(Math.random() * arr.length)]
+}
+function fmt(n) {
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+}
+
+let vib = null
+function buzz(kind) {
+  try {
+    if (!vib) vib = new Vibrator()
+    const mode = kind === 'strong' ? VIBRATOR_SCENE_SHORT_STRONG : kind === 'mid' ? VIBRATOR_SCENE_SHORT_MIDDLE : VIBRATOR_SCENE_SHORT_LIGHT
+    vib.stop()
+    vib.start({ mode })
+  } catch (e) {
+    // no vibration motor access: play silently
+  }
+}
+
+// ---------- creatures ----------
+const PRE = {} // species -> the species it evolves from
+for (const id in SPECIES) if (SPECIES[id].evo) PRE[SPECIES[id].evo] = id
+
+function statsOf(m) {
+  const s = SPECIES[m.sp]
+  const L = m.lv
+  const mood = m.joy >= HAPPY_FROM ? 1 + MOOD_EFFECT : m.full < HUNGRY_BELOW ? 1 - MOOD_EFFECT : 1
+  return {
+    hp: Math.floor(((2 * s.hp * L) / 100 + L + 10) * 1.4),
+    atk: Math.max(1, Math.floor(((2 * s.atk * L) / 100 + 5) * mood)),
+    def: Math.max(1, Math.floor(((2 * s.def * L) / 100 + 5) * mood)),
+    spd: Math.floor((2 * s.spd * L) / 100 + 5)
+  }
+}
+function maxHp(m) {
+  return statsOf(m).hp
+}
+function xpNext(lv) {
+  return Math.floor(10 + lv * lv * 1.6)
+}
+// The 3 move buttons always have the same roles:
+//   1. main attack: the strongest move of its own element
+//   2. second attack: a move of another element if it knows one (to cover a
+//      weakness), otherwise its next strongest attack
+//   3. GUARD or REST
+// Weaker moves it has outgrown are left out.
+function movesOf(m) {
+  const s = SPECIES[m.sp]
+  const known = s.moves.filter((x) => x[0] <= m.lv).map((x) => x[1])
+  const hits = known.filter((id) => MOVES[id].kind === 'hit').sort((a, b) => MOVES[b].pow - MOVES[a].pow)
+  const util = known.filter((id) => MOVES[id].kind !== 'hit')
+  const main = hits.find((id) => MOVES[id].el === s.el) || hits[0]
+  const rest = hits.filter((id) => id !== main)
+  const second = rest.find((id) => MOVES[id].el && MOVES[id].el !== s.el) || rest[0]
+  const out = [main, second, util[util.length - 1]].filter((id) => id)
+  // nothing to guard or rest with yet: fill the third slot with another attack
+  for (const id of rest) if (out.length < 3 && out.indexOf(id) < 0) out.push(id)
+  return out
+}
+function newMon(sp, lv) {
+  const m = { id: st.nextId++, sp, lv, xp: 0, hp: 0, full: 70, joy: 50 }
+  m.hp = maxHp(m)
+  return m
+}
+function monById(id) {
+  for (const m of st.mons) if (m.id === id) return m
+  return null
+}
+function partyMons() {
+  return st.party.map(monById).filter((m) => m)
+}
+function leadMon() {
+  return monById(st.party[0])
+}
+function rarityOf(sp) {
+  const s = SPECIES[sp]
+  if (s.rare) return 'rare'
+  if (PRE[sp] || s.time || s.cond) return 'uncommon'
+  return 'common'
+}
+
+function canEvolve(m) {
+  const s = SPECIES[m.sp]
+  return !!s.evo && m.lv >= s.evoLv && (!s.evoPai || weeklyPai() >= s.evoPai)
+}
+
+// gives XP, levels up, returns the messages to show
+function gainXp(m, amount) {
+  const out = []
+  const name = SPECIES[m.sp].name
+  if (m.lv >= MAX_LV) return out
+  m.xp += amount
+  out.push(name + ' got ' + amount + ' XP')
+  const startLv = m.lv
+  const learned = []
+  while (m.lv < MAX_LV && m.xp >= xpNext(m.lv)) {
+    const before = maxHp(m)
+    m.xp -= xpNext(m.lv)
+    m.lv++
+    m.hp = Math.min(maxHp(m), m.hp + (maxHp(m) - before))
+    for (const x of SPECIES[m.sp].moves) if (x[0] === m.lv) learned.push(MOVES[x[1]].name)
+  }
+  // one line for all the levels, however many (a long workout can give 10 at once)
+  const gained = m.lv - startLv
+  if (gained) out.push(name + ' grew to Lv ' + m.lv + '!' + (gained > 1 ? ' (+' + gained + ' levels)' : ''))
+  for (const mv of learned) out.push(name + ' learned ' + mv + '!')
+  if (m.lv >= MAX_LV) m.xp = 0
+  queueEvolution(m, out)
+  return out
+}
+
+function queueEvolution(m, out) {
+  const s = SPECIES[m.sp]
+  if (out && s.evo && s.evoPai && m.lv >= s.evoLv && weeklyPai() < s.evoPai && !(m.lv - 1 >= s.evoLv))
+    out.push(s.name + ' will evolve once your weekly PAI reaches ' + s.evoPai)
+  if (!canEvolve(m) || st.pendingEvo.indexOf(m.id) >= 0) return
+  if (m.joy >= EVOLVE_JOY) st.pendingEvo.push(m.id)
+  else if (out) out.push(SPECIES[m.sp].name + ' wants to evolve, but needs more JOY')
+}
+
+// time passing: hunger, mood and healing
+function passTime(ms, noHeal) {
+  if (ms <= 0) return
+  const h = ms / 3600000
+  for (const m of st.mons) {
+    m.full = clamp(m.full - FULL_DECAY_PER_HOUR * h, 0, 100)
+    if (m.full < HUNGRY_BELOW) m.joy = clamp(m.joy - 2 * h, 0, 100)
+    if (!noHeal) m.hp = clamp(m.hp + maxHp(m) * HP_REGEN_PER_MIN * h * 60, 0, maxHp(m))
+  }
+  // free tracks
+  const t = now()
+  if (!st.freeAt) st.freeAt = t + FREE_TRACK_MIN * 60000
+  while (t >= st.freeAt) {
+    if (st.tracks < TRACK_CAP) st.tracks++
+    st.freeAt += FREE_TRACK_MIN * 60000
+    if (st.tracks >= TRACK_CAP && st.freeAt < t) st.freeAt = t + FREE_TRACK_MIN * 60000
+  }
+}
+
+// ---------- saving ----------
+function freshState() {
+  return {
+    v: 1,
+    started: false,
+    mons: [],
+    party: [],
+    nextId: 1,
+    tracks: START_TRACKS,
+    freeAt: 0,
+    charms: START_CHARMS,
+    berries: { red: 2, blue: 2, green: 2, gold: 0 },
+    walk: { day: 0, tracks: 0, berries: 0, charms: 0 },
+    train: { day: 0, used: 0 },
+    test: { day: 0, steps: 0, hr: 0, kcal: 0, pai: 0, offset: 0, wx: '', face: '' },
+    sleepDay: 0,
+    dream: false,
+    seen: {},
+    caught: {},
+    favKnown: {},
+    pendingEvo: [],
+    last: 0
+  }
+}
+
+function save() {
+  lastSave = now()
+  st.last = lastSave
+  try {
+    storage.setItem('wristlings', JSON.stringify(st))
+  } catch (e) {
+    console.log('WRISTLINGS save failed: ' + e)
+  }
+}
+
+function load() {
+  const s = freshState()
+  try {
+    const raw = storage.getItem('wristlings', '')
+    if (raw) {
+      const d = JSON.parse(raw)
+      for (const k in s) if (d[k] !== undefined) s[k] = d[k]
+    }
+  } catch (e) {
+    console.log('WRISTLINGS could not read save: ' + e)
+  }
+  // drop anything that points at a species that no longer exists
+  s.mons = s.mons.filter((m) => SPECIES[m.sp])
+  s.party = s.party.filter((id) => s.mons.some((m) => m.id === id))
+  if (s.started && !s.party.length && s.mons.length) s.party = [s.mons[0].id]
+  return s
+}
+
+// ---------- the watch: steps, heart rate, sleep ----------
+let stepSensor = null
+let stepsToday = -1
+function readSteps() {
+  let n = -1
+  try {
+    if (!stepSensor) stepSensor = new Step()
+    const v = stepSensor.getCurrent()
+    if (typeof v === 'number') n = v
+  } catch (e) {
+    n = -1
+  }
+  if (!TEST_MODE) return n
+  // test mode: the +1K STEPS button adds fake steps on top of the real ones (reset each day)
+  const day = dayKey(now())
+  if (st.test.day !== day) st.test = { day, steps: 0, hr: 0, kcal: 0, pai: st.test.pai || 0, offset: st.test.offset, wx: st.test.wx || '', face: st.test.face || '' }
+  return Math.max(n, 0) + st.test.steps
+}
+
+function updateSteps() {
+  stepsToday = readSteps()
+  if (stepsToday < 0) return
+  const day = dayKey(now())
+  if (st.walk.day !== day) st.walk = { day, tracks: 0, berries: 0, charms: 0 }
+  const w = st.walk
+  const tracks = Math.floor(stepsToday / STEPS_PER_TRACK)
+  if (tracks > w.tracks) {
+    const n = tracks - w.tracks
+    w.tracks = tracks
+    const before = st.tracks
+    st.tracks = Math.min(TRACK_CAP, st.tracks + n)
+    if (st.tracks > before && screen.name === 'den') toast('+' + (st.tracks - before) + ' TRACK' + (st.tracks - before > 1 ? 'S' : ''), GOLD)
+  }
+  const berries = Math.floor(stepsToday / STEPS_PER_BERRY)
+  while (w.berries < berries) {
+    w.berries++
+    const b = Math.random() < 0.1 ? 'gold' : pick(['red', 'blue', 'green'])
+    st.berries[b]++
+  }
+  const charms = Math.floor(stepsToday / STEPS_PER_CHARM)
+  if (charms > w.charms) {
+    st.charms += charms - w.charms
+    w.charms = charms
+  }
+}
+
+function stepsToNextTrack() {
+  if (stepsToday < 0) return -1
+  return STEPS_PER_TRACK - (stepsToday % STEPS_PER_TRACK)
+}
+
+// minutes today with a pulse well above resting (from the watch's own minute log)
+let activeMinutes = -1
+function updateHeart() {
+  try {
+    const hr = new HeartRate()
+    const today = hr.getToday() || []
+    let rest = 0
+    try {
+      rest = hr.getResting()
+    } catch (e) {
+      rest = 0
+    }
+    if (!rest || rest < 35 || rest > 120) rest = 65
+    const limit = Math.max(rest + 35, 100)
+    let n = 0
+    for (let i = 0; i < today.length; i++) if (today[i] >= limit && today[i] < 230) n++
+    activeMinutes = n
+  } catch (e) {
+    activeMinutes = -1
+  }
+  const day = dayKey(now())
+  if (st.train.day !== day) st.train = { day, used: 0 }
+  // test mode: the WORKOUT button adds fake active minutes
+  if (TEST_MODE && st.test.day === day && st.test.hr) activeMinutes = Math.max(activeMinutes, 0) + st.test.hr
+}
+function trainMinutes() {
+  return activeMinutes < 0 ? 0 : Math.max(0, activeMinutes - st.train.used)
+}
+
+function checkSleep() {
+  const t = now()
+  const day = dayKey(t)
+  if (st.sleepDay === day || hourOf(t) < 5 || !st.started) return
+  try {
+    const sl = new Sleep()
+    const info = sl.getInfo()
+    if (!info || !info.totalTime) return // no sleep data (yet): try again later
+    st.sleepDay = day
+    let rem = 0
+    try {
+      const K = sl.getStageConstantObj()
+      for (const s of sl.getStage() || []) if (s.model === K.REM_STAGE) rem += Math.max(0, s.stop - s.start)
+    } catch (e) {
+      rem = 0
+    }
+    applySleep(info.totalTime, rem)
+  } catch (e) {
+    console.log('WRISTLINGS no sleep data: ' + e)
+  }
+}
+
+// a night's sleep (minutes asleep, minutes of REM): heals the team, maybe a dream visitor
+function applySleep(total, rem) {
+  const hours = Math.floor(total / 60) + 'h ' + (total % 60) + 'm'
+  const good = total >= GOOD_SLEEP_MIN
+  for (const m of st.mons) {
+    m.hp = good ? maxHp(m) : Math.max(m.hp, Math.round(maxHp(m) * 0.6))
+    m.joy = clamp(m.joy + (good ? 10 : 3), 0, 100)
+  }
+  let text = good ? 'You slept ' + hours + '. Your whole team is fully rested and happier!' : 'You slept ' + hours + '. Your team got a little rest.'
+  if (rem >= 30 && Math.random() < Math.min(0.85, rem / 100)) {
+    st.dream = true
+    text += ' Something drifted in from your dreams...'
+  }
+  const lead = leadMon()
+  notices.push({ title: 'GOOD MORNING', text, img: lead ? 'mon/' + lead.sp + '.png' : '' })
+}
+
+// ---------- more of the real world: weather, light, weekend, calories, PAI ----------
+// Some Wristlings only come out while one of these is true (their "cond" in data.js).
+const KCAL_SPAWN = 300 // calories burned today before Kindlepig shows up
+const COND_WEIGHT = 3 // a Wristling whose condition is true is this many times as likely
+const RAIN_CODES = [1, 5, 7, 10, 12, 15, 18, 19, 20, 21, 24] // watch weather codes for rain / storms
+const SUN_CODES = [3]
+const FOG_CODES = [13, 14] // fog, haze
+const DARK_LUX = 10 // below this the watch is "in the dark" (a dim room is ~10-50 lux, under a blanket ~0)
+const MIST_NIGHT_STEPS = 8000 // Mistlantern also comes out on nights after this many steps
+
+let weatherCache = { t: 0, kind: null }
+// 'rain' | 'sun' | 'other', or null when the watch has no forecast
+function weatherKind() {
+  if (TEST_MODE && (st.test.wx === 'rain' || st.test.wx === 'sun' || st.test.wx === 'fog')) return st.test.wx
+  const t = now()
+  if (weatherCache.t && t - weatherCache.t < 600000) return weatherCache.kind
+  let kind = null
+  try {
+    const d = new Weather().getForecastWeather()
+    const today = d && d.forecastData && d.forecastData.data && d.forecastData.data[0]
+    if (today)
+      kind = RAIN_CODES.indexOf(today.index) >= 0 ? 'rain' : SUN_CODES.indexOf(today.index) >= 0 ? 'sun' : FOG_CODES.indexOf(today.index) >= 0 ? 'fog' : 'other'
+  } catch (e) {
+    kind = null
+  }
+  weatherCache = { t, kind }
+  return kind
+}
+function isWeekendAfternoon() {
+  if (TEST_MODE && st.test.wx === 'weekend') return true
+  const d = new Date(now())
+  const day = d.getDay()
+  return (day === 0 || day === 6) && d.getHours() >= 12 && d.getHours() < 18
+}
+function kcalToday() {
+  let n = 0
+  try {
+    n = new Calorie().getCurrent() || 0
+  } catch (e) {
+    n = 0
+  }
+  if (TEST_MODE && st.test.day === dayKey(now())) n += st.test.kcal || 0
+  return n
+}
+function weeklyPai() {
+  let n = 0
+  try {
+    n = new Pai().getTotal() || 0
+  } catch (e) {
+    n = 0
+  }
+  if (TEST_MODE) n += st.test.pai || 0
+  return n
+}
+// ---------- compass ----------
+// The watch reports where its 12 o'clock (the top) points: 0 = north, 90 = east.
+// It only runs on the den and battle screens, to save battery.
+const FACE_TOLERANCE = 30 // degrees either side that still count as "facing north / east"
+const NEEDLE_TOLERANCE = 45 // degrees either side that count as facing where Needlefin points
+const NEEDLE_FLEE = 0.5 // chance Needlefin swims away after your turn if you were not facing it
+const DIRS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+const DIR_WORDS = ['NORTH', 'NORTH-EAST', 'EAST', 'SOUTH-EAST', 'SOUTH', 'SOUTH-WEST', 'WEST', 'NORTH-WEST']
+const TEST_FACES = { N: 0, E: 90, S: 180, W: 270 }
+let compass = null
+const onCompass = () => {}
+function compassOn() {
+  if (compass) return
+  try {
+    compass = new Compass()
+    compass.onChange(onCompass)
+    compass.start()
+  } catch (e) {
+    compass = null
+  }
+}
+function compassOff() {
+  if (!compass) return
+  try {
+    compass.offChange(onCompass)
+    compass.stop()
+  } catch (e) {
+    // already stopped
+  }
+  compass = null
+}
+// degrees the top of the watch points, or -1 if unknown (no compass / not calibrated)
+function heading() {
+  if (TEST_MODE && st.test.face) return TEST_FACES[st.test.face]
+  if (!compass) return -1
+  try {
+    if (!compass.getStatus()) return -1
+    const a = compass.getDirectionAngle()
+    return typeof a === 'number' ? a : -1
+  } catch (e) {
+    return -1
+  }
+}
+function angleGap(a, b) {
+  const g = Math.abs(a - b) % 360
+  return g > 180 ? 360 - g : g
+}
+function dirIndex(a) {
+  return Math.round(a / 45) % 8
+}
+function facing(target, tolerance) {
+  const h = heading()
+  return h >= 0 && angleGap(h, target) <= tolerance
+}
+
+// ambient light in lux from the watch's light sensor, or -1 if it has none
+function lux() {
+  if (TEST_MODE && st.test.wx === 'dark') return 0
+  try {
+    const v = new Screen().getLight()
+    return typeof v === 'number' ? v : -1
+  } catch (e) {
+    return -1
+  }
+}
+function condMet(c) {
+  if (c === 'dark') {
+    const l = lux()
+    return l >= 0 && l < DARK_LUX
+  }
+  if (c === 'north') return facing(0, FACE_TOLERANCE)
+  if (c === 'dawn') return hourOf(now()) >= 5 && hourOf(now()) < 9 && facing(90, FACE_TOLERANCE)
+  if (c === 'compass') return heading() >= 0
+  if (c === 'mist') return weatherKind() === 'fog' || (isNight() && stepsToday >= MIST_NIGHT_STEPS)
+  if (c === 'weekend') return isWeekendAfternoon()
+  if (c === 'rain') return weatherKind() === 'rain'
+  if (c === 'sun') return weatherKind() === 'sun' && !isNight()
+  if (c === 'kcal') return kcalToday() >= KCAL_SPAWN
+  return true
+}
+
+// ---------- widgets ----------
+function wrap(w, extra) {
+  const o = { w }
+  if (extra) for (const k in extra) o[k] = extra[k]
+  screen.ws.push(w)
+  return o
+}
+function mkRect(x, y, w, h, color, radius) {
+  return wrap(createWidget(widget.FILL_RECT, { x, y, w, h, radius: radius || 0, color }), { b: { x, y, w, h, radius: radius || 0, color } })
+}
+function mkRing(x, y, w, h, color, radius, lw) {
+  return wrap(createWidget(widget.STROKE_RECT, { x, y, w, h, radius, line_width: lw, color }), { b: { x, y, w, h, radius, color, line_width: lw } })
+}
+function mkText(x, y, w, h, size, color, alignH, text) {
+  return wrap(
+    createWidget(widget.TEXT, {
+      x, y, w, h,
+      text: text || '',
+      text_size: size,
+      color,
+      align_h: alignH === undefined ? align.CENTER_H : alignH,
+      align_v: align.CENTER_V,
+      text_style: text_style.WRAP
+    }),
+    { t: text || '', c: color }
+  )
+}
+function mkImg(x, y, src) {
+  return wrap(createWidget(widget.IMG, { x, y, src }), { src, x, y, v: true })
+}
+function setText(o, v) {
+  if (o.sh) setText(o.sh, v)
+  if (o.t === v) return
+  o.t = v
+  o.w.setProperty(prop.TEXT, v)
+}
+function setTextColor(o, c) {
+  if (o.c === c) return
+  o.c = c
+  o.w.setProperty(prop.COLOR, c)
+}
+function setVisible(o, v) {
+  if (o.sh) setVisible(o.sh, v)
+  if (o.v === v) return
+  o.v = v
+  o.w.setProperty(prop.VISIBLE, v)
+}
+function setRect(o, changes) {
+  let same = true
+  for (const k in changes) if (o.b[k] !== changes[k]) same = false
+  if (same) return
+  for (const k in changes) o.b[k] = changes[k]
+  o.w.setProperty(prop.MORE, o.b)
+}
+function setSrc(o, src) {
+  if (o.src === src) return
+  o.src = src
+  try {
+    o.w.setProperty(prop.SRC, src)
+  } catch (e) {
+    o.w.setProperty(prop.MORE, { x: o.x, y: o.y, src })
+  }
+}
+
+// a bar: background + fill
+function mkBar(x, y, w, h, color) {
+  const bg = mkRect(x, y, w, h, INK, h / 2)
+  const fill = mkRect(x, y, w, h, color, h / 2)
+  return { bg, fill, x, y, w, h, color }
+}
+function setBar(bar, frac, color) {
+  const w = Math.max(0, Math.round(bar.w * clamp(frac, 0, 1)))
+  setRect(bar.fill, { w: Math.max(w, 1), color: color || bar.color })
+  setVisible(bar.fill, w > 0)
+}
+function hpColor(frac) {
+  return frac > 0.5 ? GREEN : frac > 0.2 ? GOLD : RED
+}
+
+// a tappable button
+// ---------- art: pre-rendered UI images (made by tools/ui.cjs, sizes in uiart.js) ----------
+function artSrc(key) {
+  return 'ui/' + key + '.png'
+}
+function artSize(key) {
+  return ART[key] || [0, 0]
+}
+function mkArt(x, y, key) {
+  return mkImg(x, y, artSrc(key))
+}
+// centred on the screen horizontally
+function mkArtC(y, key) {
+  return mkArt(Math.round(CX - artSize(key)[0] / 2), y, key)
+}
+
+// text with a dark drop shadow, readable on top of pictures
+// The biggest font size (max down to min) at which `text` fits a w x h box.
+// Calibrated on the watch: a character is about 0.52 x the size wide and a line
+// about 1.28 x the size tall; we assume a bit wider (word wrapping wastes space).
+const CHAR_W = 0.58
+const LINE_H = 1.32
+function fitSize(text, w, h, max, min) {
+  for (let size = max; size > min; size--) {
+    const perLine = Math.max(1, Math.floor(w / (size * CHAR_W)))
+    let lines = 0
+    for (const para of String(text).split('\n')) lines += Math.max(1, Math.ceil(para.length / perLine))
+    if (lines * size * LINE_H <= h) return size
+  }
+  return min
+}
+
+function mkTextS(x, y, w, h, size, color, alignH, text) {
+  const sh = mkText(x + 1, y + 2, w, h, size, INK, alignH, text)
+  const o = mkText(x, y, w, h, size, color, alignH, text)
+  o.sh = sh
+  return o
+}
+
+// a button made of one picture (the label is usually baked into it).
+// opts.label: extra text on top (for labels that change, like move names)
+// opts.badge: a gold bubble in the corner for a number
+// opts.offKey: the picture when disabled (default: key + '_off' if it exists)
+function mkArtButton(x, y, key, fn, opts) {
+  opts = opts || {}
+  const [w, h] = artSize(key)
+  const b = { key, on: true, x, y, w, h, fixedOff: !!opts.offKey }
+  b.offKey = opts.offKey || (ART[key + '_off'] ? key + '_off' : key)
+  b.img = mkArt(x, y, key)
+  if (opts.label !== undefined) b.txt = mkTextS(x, y + (opts.labelY || 0), w, opts.labelH || h - 6, opts.size || 20, WHITE, align.CENTER_H, opts.label)
+  if (opts.badge) {
+    b.badgeImg = mkArt(x + w - 24, y - 8, 'badge')
+    b.badgeTxt = mkText(x + w - 24, y - 8, 30, 30, 16, INK, align.CENTER_H, '')
+    setVisible(b.badgeImg, false)
+    setVisible(b.badgeTxt, false)
+  }
+  addTap(x, y, w, h, () => {
+    if (b.on) fn()
+    else if (b.offFn) b.offFn()
+  })
+  return b
+}
+function setArtButton(b, on, key) {
+  if (key && key !== b.key) {
+    b.key = key
+    if (!b.fixedOff) b.offKey = ART[key + '_off'] ? key + '_off' : key
+  }
+  b.on = on
+  setSrc(b.img, artSrc(on ? b.key : b.offKey))
+  if (b.txt) setTextColor(b.txt, on ? WHITE : DIM)
+}
+function setBadge(b, n) {
+  const show = n > 0
+  setVisible(b.badgeImg, show)
+  setVisible(b.badgeTxt, show)
+  if (show) setText(b.badgeTxt, n > 99 ? '99' : String(n))
+}
+
+// the picture behind each screen
+function bgFor(name) {
+  if (name === 'den') return isNight() ? 'bg_den_night' : 'bg_den_day'
+  if (name === 'battle') return isNight() ? 'bg_battle_night' : 'bg_battle_day'
+  if (name === 'catch' || name === 'evolve') return 'bg_spot'
+  return 'bg_menu'
+}
+
+function addTap(x, y, w, h, fn) {
+  screen.taps.push({ x, y, w, h, fn })
+}
+
+// ---------- screens ----------
+function clearScreen() {
+  for (const w of screen.ws) {
+    try {
+      if (typeof deleteWidget === 'function') deleteWidget(w)
+      else w.setProperty(prop.VISIBLE, false)
+    } catch (e) {
+      try {
+        w.setProperty(prop.VISIBLE, false)
+      } catch (e2) {
+        // already gone
+      }
+    }
+  }
+}
+
+function goto(name, arg) {
+  step = 'goto ' + name
+  clearScreen()
+  screen = { name, ws: [], taps: [], ui: {}, arg, instant: false }
+  // one full-screen picture instead of a fill + shapes: cheap to draw
+  if (name === 'den' || name === 'battle') compassOn()
+  else compassOff()
+  mkArt(0, 0, bgFor(name))
+  SCREENS[name](arg)
+  // toast (above the screen, below the touch layer)
+  screen.ui.toastBg = mkArt(CX - 160, 60, 'pnl_toast')
+  screen.ui.toast = mkText(CX - 150, 62, 300, 62, 17, WHITE, align.CENTER_H, '')
+  setVisible(screen.ui.toastBg, false)
+  setVisible(screen.ui.toast, false)
+  screen.toastUntil = 0
+  // touch layer: an empty full-screen text on top of everything
+  const touch = createWidget(widget.TEXT, { x: 0, y: 0, w: W, h: H, text: '', text_size: 10, color: BG })
+  screen.ws.push(touch)
+  touch.addEventListener(event.CLICK_DOWN, (e) => onDown(e))
+  try {
+    touch.addEventListener(event.CLICK_UP, (e) => onUp(e))
+  } catch (e) {
+    // no finger-lift events: taps fire on touch-down after a short wait
+  }
+  save()
+}
+
+function toast(msg, color) {
+  const u = screen.ui
+  if (!u.toast) return
+  // show first, then change: a hidden widget may not redraw its new content
+  setVisible(u.toastBg, true)
+  setVisible(u.toast, true)
+  setText(u.toast, msg)
+  setTextColor(u.toast, color || WHITE)
+  screen.toastUntil = now() + 2200
+}
+
+// where to go "home": evolutions first, then notices, then the den
+function home() {
+  st.pendingEvo = st.pendingEvo.filter((id) => {
+    const m = monById(id)
+    return m && canEvolve(m)
+  })
+  if (st.pendingEvo.length) return goto('evolve', st.pendingEvo[0])
+  if (notices.length) return goto('notice', notices.shift())
+  goto('den')
+}
+
+// ---------- starter ----------
+function buildStarter() {
+  const u = screen.ui
+  u.sel = -1
+  mkArtC(8, 't_logo')
+  mkTextS(20, 62, W - 40, 28, 20, LILAC, align.CENTER_H, 'Pick your first partner')
+  u.cards = STARTERS.map((sp, i) => {
+    const x = 14 + i * 122
+    const card = mkArt(x, 98, 'pnl_card')
+    mkImg(x + 3, 104, 'mon/' + sp + '_b.png')
+    mkTextS(x, 216, 118, 30, 22, WHITE, align.CENTER_H, SPECIES[sp].name)
+    const el = ELEMENTS[SPECIES[sp].el]
+    mkText(x, 246, 118, 26, 18, el.color, align.CENTER_H, el.name)
+    addTap(x, 98, 118, 186, () => {
+      u.sel = i
+      u.cards.forEach((c, j) => setSrc(c, artSrc(j === i ? 'pnl_card_sel' : 'pnl_card')))
+      setArtButton(u.go, true)
+      setText(u.pick, SPECIES[sp].name + ' it is? Tap CHOOSE!')
+      setTextColor(u.pick, GOLD)
+    })
+    return card
+  })
+  u.pick = mkTextS(30, 290, W - 60, 60, 18, LILAC, align.CENTER_H, 'Walk to find wild Wristlings. Sleep well to heal them. Feed them berries.')
+  u.go = mkArtButton(55, 354, 'btn_choose', () => {
+    const m = newMon(STARTERS[u.sel], STARTER_LV)
+    m.full = 80
+    m.joy = 60
+    st.mons.push(m)
+    st.party = [m.id]
+    st.seen[m.sp] = true
+    st.caught[m.sp] = true
+    st.started = true
+    st.freeAt = now() + FREE_TRACK_MIN * 60000
+    notices.push({ title: SPECIES[m.sp].name + '!', text: 'Your new partner. You have ' + st.tracks + ' tracks: tap EXPLORE to find wild Wristlings.', img: 'mon/' + m.sp + '.png' })
+    home()
+  })
+  setArtButton(u.go, false)
+}
+
+// ---------- den (home) ----------
+function buildDen() {
+  const u = screen.ui
+  updateSteps()
+  updateHeart()
+  lastHeart = now()
+  // top: tracks and charms in two chips
+  mkArt(63, 8, 'pnl_chip')
+  mkArt(71, 12, 'ico_paw')
+  u.tracks = mkTextS(103, 8, 80, 36, 20, GOLD, align.LEFT, '')
+  mkArt(203, 8, 'pnl_chip')
+  mkArt(211, 12, 'ico_charm')
+  u.charms = mkTextS(243, 8, 80, 36, 20, 0x8fe6ff, align.LEFT, '')
+  u.walk = mkTextS(30, 46, W - 60, 22, 15, WHITE, align.CENTER_H, '')
+  u.facing = mkTextS(CX - 70, 66, 140, 20, 14, 0x8fe6ff, align.CENTER_H, '')
+  // the lead creature standing on the grass
+  u.shadow = mkRect(CX - 50, 184, 100, 12, isNight() ? 0x123020 : 0x2f7a34, 6)
+  u.img = mkImg(CX - 64, DEN_MON_Y, 'mon/' + leadMon().sp + '.png')
+  u.hopAt = -1e9
+  // tap your lead: a little hop
+  addTap(CX - 64, DEN_MON_Y, 128, 120, () => {
+    u.hopAt = now()
+    buzz('light')
+  })
+  u.name = mkTextS(30, 194, W - 60, 30, 26, WHITE, align.CENTER_H, '')
+  const row = (y, label, color) => {
+    mkText(44, y - 4, 60, 20, 15, LILAC, align.LEFT, label)
+    const bar = mkBar(100, y, 196, 12, color)
+    const val = mkText(300, y - 4, 60, 20, 15, LILAC, align.LEFT, '')
+    return { bar, val }
+  }
+  u.hp = row(238, 'HP', GREEN)
+  u.food = row(258, 'FOOD', ORANGE)
+  u.joy = row(278, 'JOY', PINK)
+  u.status = mkTextS(30, 288, W - 60, 26, 17, DIM, align.CENTER_H, '')
+  u.explore = mkArtButton(45, 316, 'btn_explore', explore, { badge: true })
+  const bx = [34, 116, 198, 280]
+  mkArtButton(bx[0], 378, 'btn_feed', () => goto('feed', { id: leadMon().id, back: 'den' }))
+  mkArtButton(bx[1], 378, 'btn_team', () => goto('team', 0))
+  mkArtButton(bx[2], 378, 'btn_book', () => goto('book', 0))
+  u.train = mkArtButton(bx[3], 378, 'btn_train', train, { badge: true })
+  u.train.offFn = () => toast(activeMinutes < 0 ? 'No heart rate data' : 'Get your pulse up: active minutes = XP', PINK)
+  mkText(60, 430, W - 120, 18, 13, DIM, align.CENTER_H, 'swipe left for the GUIDE')
+  if (TEST_MODE) {
+    // test buttons on both sides of the creature
+    // the left label is a switch: fake weather / dark / weekend (tap to cycle)
+    const WX = ['', 'rain', 'sun', 'fog', 'dark', 'weekend']
+    u.wx = mkTextS(8, 68, 112, 26, 14, RED, align.CENTER_H, 'TEST: ' + (st.test.wx ? st.test.wx.toUpperCase() : 'REAL'))
+    addTap(8, 64, 112, 32, () => {
+      st.test.wx = WX[(WX.indexOf(st.test.wx || '') + 1) % WX.length]
+      weatherCache.t = 0
+      save()
+      goto('den') // the status line and spawns follow the new setting
+      toast(st.test.wx ? 'Pretending: ' + st.test.wx.toUpperCase() : 'Using the real weather and date', GOLD)
+    })
+    // the right label is a switch too: which way the watch faces (tap to cycle)
+    const FACES = ['', 'N', 'E', 'S', 'W']
+    mkTextS(272, 68, 108, 26, 14, RED, align.CENTER_H, 'FACE: ' + (st.test.face || 'REAL'))
+    addTap(272, 64, 108, 32, () => {
+      st.test.face = FACES[(FACES.indexOf(st.test.face || '') + 1) % FACES.length]
+      save()
+      goto('den')
+      toast(st.test.face ? 'Pretending the watch faces ' + DIR_WORDS[dirIndex(TEST_FACES[st.test.face])] : 'Using the real compass', GOLD)
+    })
+    const test = (x, y, label, fn) => mkArtButton(x, y, 'btn_test', fn, { label, size: 15 })
+    test(18, 96, '+1K STEPS', () => {
+      st.test.steps += 1000
+      updateSteps()
+      updateDen()
+      save()
+      toast('+1,000 test steps (' + fmt(stepsToday) + ' today)', GOLD)
+    })
+    test(280, 96, '+1 HOUR', () => {
+      timeOffset += 3600000
+      st.test.offset = timeOffset
+      passTime(3600000)
+      lastMinute = now()
+      updateSteps()
+      save()
+      const d = new Date(now())
+      // rebuild: day turns to night (and back) on the hour
+      goto('den')
+      toast('Clock now ' + d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0') + ' (day ' + d.getDate() + ')', GOLD)
+    })
+    test(18, 146, 'WORKOUT', () => {
+      // a fake 30-minute workout: active minutes (TRAIN), calories and PAI
+      updateSteps() // makes sure the test counters belong to today
+      st.test.hr = (st.test.hr || 0) + 30
+      st.test.kcal = (st.test.kcal || 0) + 150
+      st.test.pai = (st.test.pai || 0) + 30
+      updateHeart()
+      updateDen()
+      save()
+      toast('Workout: ' + kcalToday() + ' kcal, PAI ' + weeklyPai(), GOLD)
+    })
+    test(280, 146, 'SLEEP 8H', () => {
+      // a good night with plenty of REM: full heal, more JOY, likely a dream visitor
+      applySleep(480, 100)
+      home()
+    })
+  }
+  updateDen()
+}
+
+function updateDen() {
+  const u = screen.ui
+  const m = leadMon()
+  const s = SPECIES[m.sp]
+  setText(u.tracks, st.tracks + '/' + TRACK_CAP)
+  setText(u.charms, String(st.charms))
+  const next = stepsToNextTrack()
+  setText(u.walk, stepsToday < 0 ? 'no step counter: free track every 90 min' : st.tracks >= TRACK_CAP ? fmt(stepsToday) + ' steps today: tracks full!' : 'next track in ' + next + ' steps  (' + fmt(stepsToday) + ' today)')
+  updateFacing()
+  setSrc(u.img, 'mon/' + m.sp + '.png')
+  setText(u.name, s.name + '  Lv ' + m.lv)
+  const mx = maxHp(m)
+  setBar(u.hp.bar, m.hp / mx, hpColor(m.hp / mx))
+  setText(u.hp.val, Math.ceil(m.hp) + '/' + mx)
+  setBar(u.food.bar, m.full / 100)
+  setText(u.food.val, Math.round(m.full) + '')
+  setBar(u.joy.bar, m.joy / 100)
+  setText(u.joy.val, Math.round(m.joy) + '')
+  let status = 'Walk to find more Wristlings'
+  let sc = LILAC
+  if (st.dream) {
+    status = 'A DREAM VISITOR is waiting!'
+    sc = PURPLE
+  } else if (!partyMons().some((p) => p.hp >= 1)) {
+    status = 'Your team is resting...'
+    sc = RED
+  } else if (m.full < HUNGRY_BELOW) {
+    status = s.name + ' is hungry: -10% power'
+    sc = ORANGE
+  } else if (canEvolve(m) && m.joy < EVOLVE_JOY) {
+    status = s.name + ' needs JOY to evolve'
+    sc = PINK
+  } else if (condMet('north')) {
+    status = 'Facing north: something shimmers in the cold'
+    sc = 0x8fe6ff
+  } else if (condMet('dawn')) {
+    status = 'Facing the sunrise: a lark is singing'
+    sc = GOLD
+  } else if (condMet('dark')) {
+    status = "It's dark... something squeaks nearby"
+    sc = PURPLE
+  } else if (condMet('mist')) {
+    status = 'Mist is rising: a lantern flickers'
+    sc = LILAC
+  } else if (condMet('rain')) {
+    status = 'Rainy day: watery Wristlings are out'
+    sc = BLUE
+  } else if (condMet('sun')) {
+    status = 'Sunny day: something bright hops around'
+    sc = GOLD
+  } else if (isWeekendAfternoon()) {
+    status = 'Weekend afternoon: something sleepy is near'
+    sc = GREEN
+  } else if (condMet('kcal')) {
+    status = fmt(KCAL_SPAWN) + ' kcal burned: a warm piglet sniffs around'
+    sc = ORANGE
+  } else if (m.joy >= HAPPY_FROM) {
+    status = s.name + ' is happy: +10% power'
+    sc = PINK
+  } else if (stepsToday >= RARE_WALK_STEPS) {
+    status = fmt(RARE_WALK_STEPS) + ' steps! Something big stirs...'
+    sc = GOLD
+  } else if (hourOf(now()) >= 11 && hourOf(now()) < 14) {
+    status = 'Noon: the sun is at its strongest'
+    sc = GOLD
+  } else if (isNight()) {
+    status = 'Night: Shadow Wristlings are out'
+    sc = PURPLE
+  }
+  setText(u.status, status)
+  setTextColor(u.status, sc)
+  if (st.dream) setArtButton(u.explore, true, 'btn_dream')
+  else setArtButton(u.explore, true, st.tracks > 0 ? 'btn_explore' : 'btn_notracks')
+  setBadge(u.explore, st.dream ? 0 : st.tracks)
+  const tm = trainMinutes()
+  setArtButton(u.train, tm > 0)
+  setBadge(u.train, tm)
+}
+
+// ---------- den: the lead breathes ----------
+// A slow up-and-down bob (the shadow narrows as it rises). Happy ones bob a bit
+// quicker, hungry ones slow and low, a fainted one rests. Tapping it makes it hop.
+// Only moves the picture when a whole pixel changes, so it costs almost nothing.
+const DEN_MON_Y = 62
+const BOB_PX = 3 // how high it rises
+const BOB_MS = 2400 // one breath
+const BOB_HAPPY_MS = 1600
+const BOB_HUNGRY_MS = 3400
+const HOP_PX = 16
+const HOP_MS = 420
+
+function denIdle(t) {
+  const u = screen.ui
+  if (!u.img || !u.shadow) return
+  const m = leadMon()
+  let dy = 0
+  if (m.hp >= 1) {
+    const hungry = m.full < HUNGRY_BELOW
+    const period = hungry ? BOB_HUNGRY_MS : m.joy >= HAPPY_FROM ? BOB_HAPPY_MS : BOB_MS
+    const amp = hungry ? BOB_PX / 2 : BOB_PX
+    dy -= amp * (0.5 - 0.5 * Math.cos((2 * Math.PI * (t % period)) / period))
+  }
+  const ht = t - u.hopAt
+  if (ht < HOP_MS) dy -= HOP_PX * Math.sin((Math.PI * ht) / HOP_MS)
+  dy = Math.round(dy)
+  setPos(u.img, CX - 64, DEN_MON_Y + dy)
+  // the shadow gets a little narrower the higher it is
+  const w = Math.round(100 + dy * 1.5)
+  setRect(u.shadow, { x: CX - Math.round(w / 2), w })
+}
+
+// the small compass line on the den ("facing NE"), refreshed often
+function updateFacing() {
+  const u = screen.ui
+  if (!u.facing) return
+  const h = heading()
+  setText(u.facing, h < 0 ? '' : 'facing ' + DIRS[dirIndex(h)])
+}
+
+function explore() {
+  const party = partyMons()
+  if (!party.some((p) => p.hp >= 1)) return toast('Your team needs rest first', RED)
+  if (st.dream) {
+    st.dream = false
+    const lv = clamp(leadMon().lv + 2, 3, MAX_LV)
+    return startBattle(enemyMon('lullamoth', lv), true)
+  }
+  if (st.tracks <= 0) {
+    const n = stepsToNextTrack()
+    return toast(n > 0 ? 'Walk ' + n + ' steps for a track' : 'Out of tracks: walk a little!', GOLD)
+  }
+  st.tracks--
+  startBattle(rollWild(), false)
+}
+
+function rollWild() {
+  const lead = leadMon()
+  const night = isNight()
+  const h = hourOf(now())
+  // rare ones have their own rules (see RARE_* in the balance section)
+  if (h >= 11 && h < 14 && Math.random() < RARE_NOON_CHANCE) return enemyMon('solarion', clamp(lead.lv + 2, 8, MAX_LV))
+  if (stepsToday >= RARE_WALK_STEPS && Math.random() < RARE_WALK_CHANCE) return enemyMon('boulderon', clamp(lead.lv + 2, 8, MAX_LV))
+  const ok = (id) => !SPECIES[id].rare && (night || SPECIES[id].time !== 'night') && (!SPECIES[id].cond || condMet(SPECIES[id].cond))
+  const base = BOOK.filter((id) => ok(id) && !PRE[id])
+  const evolved = BOOK.filter((id) => ok(id) && PRE[id])
+  let sp
+  if (lead.lv >= WILD_EVOLVED_LV && evolved.length && Math.random() < WILD_EVOLVED_CHANCE) sp = pick(evolved)
+  else {
+    // at night the Shadow line is three times as likely
+    const bag = []
+    for (const id of base) {
+      bag.push(id)
+      if (night && SPECIES[id].el === 'shadow') bag.push(id, id)
+      // creatures tied to weather, light, weekend or calories are easier to meet while it lasts
+      if (SPECIES[id].cond) for (let k = 1; k < (SPECIES[id].condWeight || COND_WEIGHT); k++) bag.push(id)
+    }
+    sp = pick(bag)
+  }
+  // early on wild ones are never above your lead's level
+  let lv = clamp(lead.lv + (lead.lv < 10 ? randInt(-3, 0) : randInt(-3, 1)), 2, MAX_LV)
+  if (PRE[sp]) lv = Math.max(lv, SPECIES[PRE[sp]].evoLv)
+  return enemyMon(sp, lv)
+}
+
+function enemyMon(sp, lv) {
+  const m = { id: 0, sp, lv, xp: 0, hp: 0, full: 70, joy: 50 }
+  m.hp = maxHp(m)
+  return m
+}
+
+function train() {
+  const tm = trainMinutes()
+  if (tm <= 0) return
+  const m = leadMon()
+  const xp = tm * (TRAIN_XP_BASE + m.lv)
+  st.train.used += tm
+  m.joy = clamp(m.joy + 5, 0, 100)
+  const msgs = gainXp(m, xp)
+  notices.push({ title: 'TRAINING', text: tm + ' active minutes today!\n' + msgs.join('\n'), img: 'mon/' + m.sp + '.png' })
+  buzz('mid')
+  home()
+}
+
+// ---------- battle ----------
+// pIdx: who is really fighting (the game logic). showIdx: who the screen shows. A turn is
+// worked out at once and then played back as messages, so showIdx only changes when
+// the "Go, X!" message appears.
+const B = { enemy: null, pIdx: 0, showIdx: 0, queue: [], until: 0, busy: false, shown: { p: 0, e: 0 }, target: { p: 0, e: 0 }, guard: { p: false, e: false }, rests: { p: 0, e: 0 }, blink: null, over: false }
+
+// the creature the battle screen is showing right now (see B.showIdx)
+function shownMon() {
+  return monById(st.party[B.showIdx])
+}
+function activeMon() {
+  return monById(st.party[B.pIdx])
+}
+function nextHealthy(skip) {
+  for (let i = 0; i < st.party.length; i++) {
+    const m = monById(st.party[i])
+    if (i !== skip && m && m.hp >= 1) return i
+  }
+  return -1
+}
+
+function startBattle(enemy, dream) {
+  B.enemy = enemy
+  B.pIdx = Math.max(0, nextHealthy(-1))
+  B.showIdx = B.pIdx
+  B.queue = []
+  B.until = 0
+  B.busy = false
+  B.over = false
+  B.guard = { p: false, e: false }
+  B.rests = { p: 0, e: 0 }
+  B.blink = null
+  B.later = []
+  B.entered = false
+  B.fx = { e: newFx(), p: newFx(), flash: 0, flashColor: 0 }
+  B.shown.e = B.target.e = enemy.hp
+  B.shown.p = B.target.p = activeMon().hp
+  st.seen[enemy.sp] = true
+  say((dream ? 'A dreamy ' : 'A wild ') + SPECIES[enemy.sp].name + ' appeared!', null, 750)
+  // a compass fish points somewhere: face it, or it may swim away
+  B.needle = SPECIES[enemy.sp].cond === 'compass' ? randInt(0, 7) * 45 : null
+  if (B.needle !== null) say('It points ' + DIR_WORDS[dirIndex(B.needle)] + '! Face it or it may flee', null, 1400)
+  goto('battle')
+}
+
+// queue a battle message; fn runs when the message appears
+function say(text, fn, ms) {
+  B.queue.push({ text, fn, ms: ms === undefined ? (text ? MSG_MS : 0) : ms })
+}
+
+// ---------- battle effects ----------
+// Each side has timestamps for its animations: lunge (attacking), shake (hit),
+// drop (fainting), enter (sliding in) and a popping damage number.
+const MSG_MS = 800
+const ENEMY_POS = { x: 236, y: 26 }
+const PLAYER_POS = { x: 30, y: 148 }
+const LUNGE_MS = 220
+const SHAKE_MS = 360
+const DROP_MS = 420
+const ENTER_MS = 450
+const POP_MS = 750
+const HIT_DELAY_MS = 170 // the hit lands as the lunge reaches the target
+
+function newFx() {
+  return { lunge: -1e9, shake: -1e9, drop: 0, enter: -1e9, pop: -1e9, vis: true }
+}
+
+function later(ms, fn) {
+  B.later.push({ at: now() + ms, fn })
+}
+
+// a number (or word) that floats up from a sprite
+function popText(side, text, color) {
+  const o = screen.ui.pop && screen.ui.pop[side]
+  if (!o) return
+  // show first, then change: a hidden widget may not redraw its new content
+  setVisible(o, true)
+  setText(o, text)
+  setTextColor(o, color)
+  B.fx[side].pop = now()
+}
+
+// moves a widget with the X / Y properties (MORE as a fallback)
+function setPos(o, x, y) {
+  x = Math.round(x)
+  y = Math.round(y)
+  if (o.x === x && o.y === y) return
+  try {
+    if (o.x !== x) o.w.setProperty(prop.X, x)
+    if (o.y !== y) o.w.setProperty(prop.Y, y)
+  } catch (e) {
+    o.w.setProperty(prop.MORE, o.src !== undefined ? { x, y, src: o.src } : { x, y, w: o.pw, h: o.ph })
+  }
+  o.x = x
+  o.y = y
+}
+
+function tickFx(t) {
+  const u = screen.ui
+  for (const side of ['e', 'p']) {
+    const f = B.fx[side]
+    const base = side === 'e' ? ENEMY_POS : PLAYER_POS
+    const toward = side === 'e' ? -1 : 1 // the direction of the other creature
+    let dx = 0
+    let dy = 0
+    let gone = !f.vis
+    const lt = t - f.lunge
+    if (lt < LUNGE_MS) {
+      dx += toward * 20 * Math.sin((Math.PI * lt) / LUNGE_MS)
+      dy -= toward * 8 * Math.sin((Math.PI * lt) / LUNGE_MS)
+    }
+    const st2 = t - f.shake
+    if (st2 < SHAKE_MS) dx += Math.sin(st2 / 20) * 8 * (1 - st2 / SHAKE_MS)
+    if (f.drop) {
+      const k = Math.min(1, (t - f.drop) / DROP_MS)
+      dy += k * k * 70
+      if (k >= 1) gone = true
+    }
+    const et = t - f.enter
+    if (et < ENTER_MS) {
+      const k = 1 - et / ENTER_MS
+      dx -= toward * k * k * 230
+    }
+    // your side has one picture per party member: only the active one shows
+    if (side === 'p') u.pImgs.forEach((im, i) => i !== B.showIdx && setVisible(im, false))
+    const img = side === 'e' ? u.eImg : u.pImgs[B.showIdx]
+    setPos(img, base.x + dx, base.y + dy)
+    const blinkOff = B.blink && B.blink.side === side && B.blink.n > 0 && Math.floor(B.blink.n / 2) % 2 === 1
+    setVisible(img, !gone && !blinkOff)
+    // damage number: rises 30 px and disappears
+    const pt = t - f.pop
+    const pop = u.pop[side]
+    if (pt < POP_MS) {
+      setPos(pop, pop.bx, pop.by - 30 * (pt / POP_MS))
+      setVisible(pop, true)
+    } else setVisible(pop, false)
+  }
+  if (B.blink) {
+    B.blink.n--
+    if (B.blink.n <= 0) B.blink = null
+  }
+  const fl = t - B.fx.flash < 140
+  if (fl) setRect(u.flash, { color: B.fx.flashColor })
+  setVisible(u.flash, fl)
+}
+
+function buildBattle() {
+  const u = screen.ui
+  const e = B.enemy
+  const es = SPECIES[e.sp]
+  // a full-screen tint above the background, flashed on big hits
+  u.flash = mkRect(0, 0, W, H, BG, 0)
+  setVisible(u.flash, false)
+  // enemy panel
+  mkArt(26, 32, 'pnl_info')
+  mkRect(40, 46, 10, 10, ELEMENTS[es.el].color, 5)
+  mkTextS(56, 36, 118, 30, 22, WHITE, align.LEFT, es.name)
+  mkText(150, 36, 62, 30, 18, LILAC, align.RIGHT, 'Lv ' + e.lv)
+  u.eBar = mkBar(40, 70, 168, 12, GREEN)
+  mkText(40, 86, 168, 20, 14, ELEMENTS[es.el].color, align.LEFT, ELEMENTS[es.el].name)
+  u.eHint = mkText(40, 86, 168, 20, 14, DIM, align.RIGHT, 'tap: stats')
+  addTap(26, 32, 196, 78, openStats)
+  // test mode: tapping the compass hint changes which way you "face"
+  if (TEST_MODE && B.needle !== null)
+    addTap(120, 84, 102, 26, () => {
+      const FACES = ['', 'N', 'E', 'S', 'W']
+      st.test.face = FACES[(FACES.indexOf(st.test.face || '') + 1) % FACES.length]
+      toast('Test: facing ' + (st.test.face || 'REAL compass'), GOLD)
+    })
+  u.eImg = mkImg(ENEMY_POS.x, ENEMY_POS.y, 'mon/' + e.sp + '.png')
+  // player
+  // one picture per party member, made once: swapping only shows / hides them.
+  // (Changing an image's picture while it is hidden did not redraw on the watch.)
+  u.pImgs = st.party.map((id) => {
+    const im = mkImg(PLAYER_POS.x, PLAYER_POS.y, 'mon/' + monById(id).sp + '_b.png')
+    setVisible(im, false)
+    return im
+  })
+  mkArt(172, 178, 'pnl_info')
+  u.pDot = mkRect(186, 190, 10, 10, WHITE, 5)
+  u.pName = mkTextS(202, 180, 108, 30, 22, WHITE, align.LEFT, '')
+  u.pLv = mkText(296, 180, 62, 30, 18, LILAC, align.RIGHT, '')
+  u.pBar = mkBar(186, 216, 168, 12, GREEN)
+  u.pHp = mkText(186, 230, 168, 22, 16, LILAC, align.RIGHT, '')
+  // who moves first this turn (from both speeds; GUARD always goes first)
+  u.order = mkText(186, 230, 100, 22, 16, GREEN, align.LEFT, '')
+  addTap(172, 178, 196, 78, openStats)
+  // message
+  mkArt(18, 260, 'pnl_msg')
+  u.msg = mkText(26, 260, W - 52, 42, 19, WHITE, align.CENTER_H, '')
+  // moves: the button colour is the move's element
+  u.moves = [0, 1, 2].map((i) => {
+    const x = 24 + i * 116
+    const b = mkArtButton(x, 304, 'btn_move_none', () => act('move', b.mv), { label: '', labelY: 4, labelH: 28, size: 18, offKey: 'btn_move_off' })
+    b.tag = mkText(x, 331, 110, 20, 14, GOLD, align.CENTER_H, '')
+    return b
+  })
+  u.catchBtn = mkArtButton(36, 368, 'btn_catch', tryCatch, { badge: true })
+  u.catchBtn.offFn = () => toast(B.busy ? '...' : 'No charms left: walk to find more', GOLD)
+  u.swapBtn = mkArtButton(144, 368, 'btn_swap', () => act('swap'))
+  u.runBtn = mkArtButton(250, 368, 'btn_run', run)
+  // floating damage numbers, above the sprites and panels
+  const mkPop = (x, y) => {
+    const o = mkText(x, y, 120, 40, 32, WHITE, align.CENTER_H, '')
+    o.x = o.bx = x
+    o.y = o.by = y
+    setVisible(o, false)
+    return o
+  }
+  u.pop = { e: mkPop(ENEMY_POS.x + 4, ENEMY_POS.y + 30), p: mkPop(PLAYER_POS.x - 4, PLAYER_POS.y + 20) }
+  buildStatsOverlay()
+  // both creatures slide in when the battle starts
+  if (!B.entered) {
+    B.entered = true
+    B.fx.e.enter = B.fx.p.enter = now()
+  }
+  refreshPlayer()
+  tickFx(now())
+  if (!B.busy && !B.queue.length && !B.over) setText(u.msg, 'What will ' + SPECIES[activeMon().sp].name + ' do?')
+  updateBattle()
+}
+
+function refreshPlayer() {
+  const u = screen.ui
+  if (screen.name !== 'battle') return
+  const m = shownMon()
+  const s = SPECIES[m.sp]
+  setRect(u.pDot, { color: ELEMENTS[s.el].color })
+  setText(u.pName, s.name)
+  setText(u.pLv, 'Lv ' + m.lv)
+  const mvs = movesOf(m)
+  const es = SPECIES[B.enemy.sp]
+  u.moves.forEach((b, i) => {
+    const id = mvs[i]
+    b.mv = id
+    if (!id) {
+      setArtButton(b, false, 'btn_move_none')
+      setText(b.txt, '-')
+      setText(b.tag, '')
+      return
+    }
+    const mv = MOVES[id]
+    setArtButton(b, b.on, 'btn_move_' + (mv.el || 'none'))
+    setText(b.txt, mv.name)
+    const eff = mv.kind === 'hit' ? effectiveness(mv.el, es.el) : 1
+    setText(b.tag, mv.kind === 'guard' ? 'BLOCK' : mv.kind === 'heal' ? 'HEAL' : eff > 1 ? 'STRONG' : eff < 1 ? 'WEAK' : 'POW ' + mv.pow)
+    setTextColor(b.tag, eff > 1 ? 0x9cff8a : eff < 1 ? 0xffa0a0 : mv.kind === 'hit' ? 0xe0dcff : 0xa8e0ff)
+  })
+}
+
+// ---------- stats comparison (tap a panel in battle) ----------
+// Your creature's numbers are always shown; a wild one's only once you have
+// caught that species (otherwise "?").
+const STAT_ROWS = [['HP', 'hp'], ['ATK', 'atk'], ['DEF', 'def'], ['SPD', 'spd']]
+
+function buildStatsOverlay() {
+  const u = screen.ui
+  const o = (u.stats = { ws: [], open: false })
+  const add = (w) => {
+    o.ws.push(w)
+    return w
+  }
+  add(mkRect(0, 0, W, H, INK, 0))
+  add(mkArt(20, 20, 'pnl_big'))
+  add(mkArtC(18, 't_stats'))
+  o.col = [30, 235].map((x) => ({
+    who: add(mkText(x, 56, 125, 20, 14, DIM, align.CENTER_H, '')),
+    name: add(mkTextS(x, 76, 125, 28, 20, WHITE, align.CENTER_H, '')),
+    el: add(mkText(x, 104, 125, 22, 15, WHITE, align.CENTER_H, '')),
+    vals: STAT_ROWS.map((r, i) => add(mkTextS(x, 136 + i * 40, 125, 34, 24, WHITE, align.CENTER_H, ''))),
+    mood: add(mkText(x, 298, 125, 24, 15, DIM, align.CENTER_H, ''))
+  }))
+  STAT_ROWS.forEach((r, i) => add(mkText(155, 136 + i * 40, 80, 34, 16, DIM, align.CENTER_H, r[0])))
+  o.note = add(mkText(36, 326, W - 72, 46, 15, DIM, align.CENTER_H, ''))
+  add(mkText(40, 380, W - 80, 30, 15, DIM, align.CENTER_H, 'tap anywhere to close'))
+  o.ws.forEach((w) => setVisible(w, false))
+}
+
+function moodText(m) {
+  if (m.joy >= HAPPY_FROM) return ['HAPPY +10%', PINK]
+  if (m.full < HUNGRY_BELOW) return ['HUNGRY -10%', ORANGE]
+  return ['mood: normal', DIM]
+}
+
+function openStats() {
+  const o = screen.ui.stats
+  if (!o || B.busy) return
+  // show first, then fill in: a hidden widget may not redraw its new content
+  o.ws.forEach((w) => setVisible(w, true))
+  o.open = true
+  const mons = [activeMon(), B.enemy]
+  const known = !!st.caught[B.enemy.sp]
+  const stats = mons.map((m) => statsOf(m))
+  mons.forEach((m, c) => {
+    const col = o.col[c]
+    const s = SPECIES[m.sp]
+    setText(col.who, c === 0 ? 'YOURS' : 'WILD')
+    setText(col.name, s.name)
+    setText(col.el, ELEMENTS[s.el].name + '  Lv ' + m.lv)
+    setTextColor(col.el, ELEMENTS[s.el].color)
+    STAT_ROWS.forEach((r, i) => {
+      const hidden = c === 1 && !known
+      const v = r[1] === 'hp' ? Math.ceil(m.hp) + '/' + stats[c].hp : String(stats[c][r[1]])
+      setText(col.vals[i], hidden ? '?' : v)
+      // the better number of each pair is green (only when both are known)
+      const mine = stats[c][r[1]]
+      const theirs = stats[1 - c][r[1]]
+      setTextColor(col.vals[i], !hidden && known && mine > theirs ? GREEN : hidden ? DIM : WHITE)
+    })
+    const md = c === 0 ? moodText(m) : ['', DIM]
+    setText(col.mood, md[0])
+    setTextColor(col.mood, md[1])
+  })
+  setText(o.note, known ? 'HP compares max HP. Green = better.' : 'Catch a ' + SPECIES[B.enemy.sp].name + ' to see its stats.')
+}
+
+function closeStats() {
+  const o = screen.ui.stats
+  o.ws.forEach((w) => setVisible(w, false))
+  o.open = false
+}
+
+function updateBattle() {
+  const u = screen.ui
+  const m = shownMon()
+  const e = B.enemy
+  const pm = maxHp(m)
+  const em = maxHp(e)
+  setBar(u.pBar, B.shown.p / pm, hpColor(B.shown.p / pm))
+  setBar(u.eBar, B.shown.e / em, hpColor(B.shown.e / em))
+  setText(u.pHp, Math.ceil(B.shown.p) + ' / ' + pm)
+  const ps = statsOf(m).spd
+  const es = statsOf(e).spd
+  setText(u.order, ps > es ? 'FIRST' : ps < es ? 'SECOND' : 'SAME SPD')
+  if (B.needle !== null) {
+    const h = heading()
+    const ok = h >= 0 && angleGap(h, B.needle) <= NEEDLE_TOLERANCE
+    setText(u.eHint, h < 0 ? 'points ' + DIRS[dirIndex(B.needle)] + ' (no compass)' : (ok ? 'facing it! ' : 'face ') + DIRS[dirIndex(B.needle)])
+    setTextColor(u.eHint, ok ? GREEN : ORANGE)
+  }
+  setTextColor(u.order, ps > es ? GREEN : ps < es ? ORANGE : DIM)
+  const free = !B.busy && !B.over
+  u.moves.forEach((b) => setArtButton(b, free && !!b.mv))
+  setArtButton(u.catchBtn, free && st.charms > 0)
+  setBadge(u.catchBtn, st.charms)
+  setArtButton(u.swapBtn, free && nextHealthy(B.pIdx) >= 0)
+  setArtButton(u.runBtn, free)
+}
+
+function tickBattle(t) {
+  // effects scheduled a moment after a message (the hit lands after the lunge)
+  if (B.later.length) {
+    const due = B.later.filter((l) => t >= l.at)
+    B.later = B.later.filter((l) => t < l.at)
+    for (const l of due) l.fn()
+    if (screen.name !== 'battle') return
+  }
+  // play the queued messages one by one
+  if (t >= B.until && !B.later.length) {
+    if (B.queue.length) {
+      const q = B.queue.shift()
+      B.busy = true
+      if (q.fn) q.fn()
+      if (screen.name !== 'battle') return
+      if (q.text) setText(screen.ui.msg, q.text)
+      B.until = t + q.ms
+    } else if (B.busy) {
+      B.busy = false
+      setText(screen.ui.msg, 'What will ' + SPECIES[activeMon().sp].name + ' do?')
+    }
+  }
+  // HP bars slide toward their new value
+  for (const k of ['p', 'e']) {
+    const d = B.target[k] - B.shown[k]
+    if (Math.abs(d) < 0.5) B.shown[k] = B.target[k]
+    else B.shown[k] += d * 0.25
+  }
+  tickFx(t)
+  updateBattle()
+}
+
+function aiMove(e, foe) {
+  const mvs = movesOf(e)
+  const mx = maxHp(e)
+  if (mvs.indexOf('rest') >= 0 && e.hp < mx * AI_REST_BELOW && B.rests.e < RESTS_PER_BATTLE && Math.random() < 0.6) return 'rest'
+  if (mvs.indexOf('guard') >= 0 && Math.random() < 0.12) return 'guard'
+  const hits = mvs.filter((id) => MOVES[id].kind === 'hit')
+  if (!hits.length) return mvs[0]
+  // young wild ones pick moves more randomly, so early fights are gentler
+  if (Math.random() < (e.lv < 8 ? 0.55 : 0.3)) return pick(hits)
+  let best = hits[0]
+  let bestV = -1
+  for (const id of hits) {
+    const mv = MOVES[id]
+    const v = mv.pow * (mv.acc / 100) * effectiveness(mv.el, SPECIES[foe.sp].el) * (mv.el === SPECIES[e.sp].el ? SAME_ELEMENT_BONUS : 1)
+    if (v > bestV) {
+      bestV = v
+      best = id
+    }
+  }
+  return best
+}
+
+function act(kind, mvId) {
+  if (B.busy || B.over || B.queue.length) return
+  const e = B.enemy
+  B.guard = { p: false, e: false }
+  if (kind === 'move') {
+    const p = activeMon()
+    const eMv = aiMove(e, p)
+    const pp = MOVES[mvId].prio || 0
+    const ep = MOVES[eMv].prio || 0
+    const ps = statsOf(p).spd
+    const es = statsOf(e).spd
+    const pFirst = pp !== ep ? pp > ep : ps !== es ? ps > es : Math.random() < 0.5
+    const order = pFirst ? [['p', mvId], ['e', eMv]] : [['e', eMv], ['p', mvId]]
+    for (const o of order) if (!doMove(o[0], o[1])) break
+  } else if (kind === 'swap') {
+    const next = nextHealthy(B.pIdx)
+    if (next < 0) return
+    const old = activeMon()
+    B.pIdx = next
+    const m = activeMon()
+    const hp = m.hp
+    say('Come back, ' + SPECIES[old.sp].name + '!', () => (B.fx.p.vis = false), 650)
+    say('Go, ' + SPECIES[m.sp].name + '!', () => sendIn(next, hp))
+    doMove('e', aiMove(e, m))
+  } else if (kind === 'enemy') {
+    doMove('e', aiMove(e, activeMon()))
+  }
+  needleTurn()
+  save()
+}
+
+// Needlefin: if you were not facing where it points, it may swim away; then it turns
+function needleTurn() {
+  const e = B.enemy
+  if (B.needle === null || B.over || e.hp < 1) return
+  const name = SPECIES[e.sp].name
+  if (!facing(B.needle, NEEDLE_TOLERANCE)) {
+    if (Math.random() < NEEDLE_FLEE) {
+      B.over = true
+      say(name + ' swam away! Face where it points', () => (B.fx.e.vis = false), 1200)
+      say('', () => home(), 0)
+      return
+    }
+    say(name + ' wriggles... face it!', null, 750)
+  }
+  let next = B.needle
+  while (next === B.needle) next = randInt(0, 7) * 45
+  B.needle = next
+  say(name + ' now points ' + DIR_WORDS[dirIndex(next)] + '!', null, 1000)
+}
+
+// one creature uses one move. Returns false when someone fainted (the turn stops).
+function doMove(side, mvId) {
+  const me = side === 'p' ? activeMon() : B.enemy
+  const foe = side === 'p' ? B.enemy : activeMon()
+  const other = side === 'p' ? 'e' : 'p'
+  if (me.hp < 1 || foe.hp < 1) return false
+  const mv = MOVES[mvId]
+  const who = (side === 'e' ? 'Wild ' : '') + SPECIES[me.sp].name
+  if (mv.kind === 'guard') {
+    B.guard[side] = true
+    say(who + ' used Guard!', () => popText(side, 'GUARD', BLUE))
+    return true
+  }
+  if (mv.kind === 'heal') {
+    if (B.rests[side] >= RESTS_PER_BATTLE) {
+      say(who + ' is too restless to Rest')
+      return true
+    }
+    B.rests[side]++
+    const mx = maxHp(me)
+    const before = me.hp
+    me.hp = Math.min(mx, me.hp + Math.ceil(mx * (mv.heal || REST_HEAL)))
+    const v = me.hp
+    say(who + ' used Rest!')
+    say(who + ' feels better', () => {
+      B.target[side] = v
+      popText(side, '+' + Math.round(v - before), GREEN)
+    }, 700)
+    return true
+  }
+  if (Math.random() * 100 >= mv.acc) {
+    say(who + ' used ' + mv.name + '!', () => {
+      B.fx[side].lunge = now()
+      later(HIT_DELAY_MS, () => popText(other, 'MISS', DIM))
+    })
+    say('...but it missed!', null, 650)
+    return true
+  }
+  const a = statsOf(me)
+  const d = statsOf(foe)
+  const eff = effectiveness(mv.el, SPECIES[foe.sp].el)
+  const stab = mv.el && mv.el === SPECIES[me.sp].el ? SAME_ELEMENT_BONUS : 1
+  const crit = Math.random() < CRIT_CHANCE ? CRIT_MULT : 1
+  let dmg = (((2 * me.lv) / 5 + 2) * mv.pow * (a.atk / d.def)) / 50 + 2
+  dmg *= eff * stab * crit * (0.85 + Math.random() * 0.15)
+  if (B.guard[other]) dmg *= GUARD_TAKEN
+  dmg = Math.max(1, Math.round(dmg))
+  foe.hp = Math.max(0, foe.hp - dmg)
+  const v = foe.hp
+  const big = eff > 1 || crit > 1
+  say(who + ' used ' + mv.name + '!', () => {
+    // the attacker lunges; the hit lands a moment later
+    B.fx[side].lunge = now()
+    later(HIT_DELAY_MS, () => {
+      B.target[other] = v
+      B.fx[other].shake = now()
+      B.blink = { side: other, n: 8 }
+      popText(other, '-' + dmg + (crit > 1 ? '!' : ''), crit > 1 ? GOLD : eff > 1 ? ORANGE : eff < 1 ? DIM : WHITE)
+      if (big) {
+        B.fx.flash = now()
+        B.fx.flashColor = crit > 1 ? 0x4a4214 : 0x4a2a12
+      }
+      buzz(other === 'p' || big ? 'strong' : 'light')
+    })
+  })
+  if (B.guard[other]) say('The guard softened the blow', null, 650)
+  if (crit > 1) say('A critical hit!', null, 650)
+  if (eff > 1) say("It's super effective!", null, 650)
+  else if (eff < 1) say("It's not very effective...", null, 650)
+  if (foe.hp < 1) {
+    if (other === 'e') enemyFainted()
+    else playerFainted()
+    return false
+  }
+  return true
+}
+
+function enemyFainted() {
+  const e = B.enemy
+  B.over = true
+  say('Wild ' + SPECIES[e.sp].name + ' fainted!', () => {
+    B.fx.e.drop = now()
+    buzz('mid')
+  })
+  const xp = Math.round((10 + e.lv * 7) * (SPECIES[e.sp].rare ? 1.5 : 1))
+  const p = activeMon()
+  p.joy = clamp(p.joy + 3, 0, 100)
+  const msgs = gainXp(p, xp)
+  for (const m of partyMons()) if (m !== p && m.hp >= 1) msgs.push(...gainXp(m, Math.floor(xp / 2)).filter((x) => x.indexOf(' XP') < 0))
+  for (const msg of msgs) say(msg, null, 750)
+  if (Math.random() < BERRY_DROP) {
+    const b = Math.random() < 0.15 ? 'gold' : pick(['red', 'blue', 'green'])
+    st.berries[b]++
+    say('Found a ' + BERRIES.find((x) => x.id === b).name + '!', null, 750)
+  }
+  if (Math.random() < CHARM_DROP) {
+    st.charms++
+    say('Found a charm!', null, 750)
+  }
+  say('', () => home(), 0)
+}
+
+// the next party member slides in
+function sendIn(idx, hp) {
+  B.showIdx = idx
+  B.shown.p = B.target.p = hp
+  B.fx.p = newFx()
+  B.fx.p.enter = now()
+  refreshPlayer()
+}
+
+function playerFainted() {
+  const m = activeMon()
+  say(SPECIES[m.sp].name + ' fainted!', () => {
+    B.fx.p.drop = now()
+    buzz('strong')
+  })
+  const next = nextHealthy(B.pIdx)
+  if (next >= 0) {
+    B.pIdx = next
+    const hp = activeMon().hp
+    say('Go, ' + SPECIES[activeMon().sp].name + '!', () => sendIn(next, hp))
+    return
+  }
+  B.over = true
+  say('Your team is worn out!')
+  say('You hurry home to rest.', () => {
+    for (const p of partyMons()) p.hp = Math.max(p.hp, 1)
+  })
+  say('', () => home(), 0)
+}
+
+function run() {
+  if (B.busy || B.over) return
+  B.over = true
+  say('You got away safely.', null, 700)
+  say('', () => home(), 0)
+}
+
+function tryCatch() {
+  if (B.busy || B.over || st.charms <= 0) return
+  st.charms--
+  goto('catch')
+}
+
+// ---------- catching ----------
+const CATCH = { phase: 'aim', t0: 0, step: -1, period: 1300, r: RING_MAX, rating: '', ok: false, wob: 0, next: 0 }
+const COUNT_STEP_MS = 600 // each beat of the 3-2-1 countdown
+const GO_SHOW_MS = 450 // how long GO! stays up once the ring moves
+const CATCH_CY = 196
+
+function buildCatch() {
+  const u = screen.ui
+  const e = B.enemy
+  // a short 3-2-1-GO first, so you can get ready; the ring starts at GO
+  CATCH.phase = 'count'
+  CATCH.t0 = now()
+  CATCH.step = -1
+  mkArtC(6, 't_catch')
+  mkTextS(20, 56, W - 40, 26, 18, LILAC, align.CENTER_H, 'Tap when the rings meet')
+  // how hard this one is: its rarity, and the ring speed that goes with it
+  const rar = rarityOf(e.sp)
+  CATCH.period = RARITY[rar].ringMs
+  mkTextS(20, 80, W - 40, 22, 16, RARITY_COLOR[rar], align.CENTER_H, RARITY[rar].name)
+  u.target = mkRing(CX - RING_TARGET, CATCH_CY - RING_TARGET, RING_TARGET * 2, RING_TARGET * 2, GOLD, RING_TARGET, 4)
+  u.img = mkImg(CX - 64, CATCH_CY - 70, 'mon/' + e.sp + '.png')
+  u.charm = mkImg(CX - 36, CATCH_CY - 36, 'item/charm_l.png')
+  setVisible(u.charm, false)
+  u.ring = mkRing(CX - RING_MAX, CATCH_CY - RING_MAX, RING_MAX * 2, RING_MAX * 2, WHITE, RING_MAX, 5)
+  // the result words are pictures; one is shown at a time
+  u.rate = {}
+  for (const k of ['perfect', 'good', 'miss', 'gotcha', 'free']) {
+    u.rate[k] = mkArtC(318, 't_' + k)
+    setVisible(u.rate[k], false)
+  }
+  // countdown pictures over the creature: 3, 2, 1, GO!
+  u.count = ['t_count3', 't_count2', 't_count1', 't_go'].map((k) => {
+    const im = mkArt(Math.round(CX - artSize(k)[0] / 2), Math.round(CATCH_CY - artSize(k)[1] / 2), k)
+    setVisible(im, false)
+    return im
+  })
+  const frac = e.hp / maxHp(e)
+  u.info = mkTextS(20, 368, W - 40, 30, 18, LILAC, align.CENTER_H, 'HP ' + Math.round(frac * 100) + '%   charms left ' + st.charms)
+  screen.instant = true
+  addTap(0, 0, W, H, catchTap)
+}
+
+function showRating(k) {
+  const r = screen.ui.rate
+  for (const key in r) setVisible(r[key], key === k)
+}
+
+function catchTap() {
+  if (CATCH.phase !== 'aim') return
+  const d = Math.abs(CATCH.r - RING_TARGET)
+  CATCH.rating = d <= PERFECT_PX ? 'perfect' : d <= GOOD_PX ? 'good' : 'miss'
+  const bonus = d <= PERFECT_PX ? CATCH_PERFECT : d <= GOOD_PX ? CATCH_GOOD : 0
+  const e = B.enemy
+  const frac = e.hp / maxHp(e)
+  let chance = (CATCH_BASE + (1 - frac) * CATCH_HP + bonus) * RARITY[rarityOf(e.sp)].mult
+  if (e.lv > leadMon().lv + CATCH_OVERLEVEL) chance -= CATCH_OVERLEVEL_PENALTY
+  CATCH.ok = Math.random() < clamp(chance, 0.05, CATCH_MAX)
+  CATCH.phase = 'wobble'
+  CATCH.wob = 0
+  CATCH.next = now() + 500
+  const u = screen.ui
+  showRating(CATCH.rating)
+  setVisible(u.count[3], false)
+  setVisible(u.ring, false)
+  setVisible(u.img, false)
+  setVisible(u.charm, true)
+  buzz('light')
+}
+
+function tickCatch(t) {
+  const u = screen.ui
+  if (CATCH.phase === 'count') {
+    // 3, 2, 1 (one beat each, with a tap on the wrist), then GO and the ring starts
+    const step = Math.floor((t - CATCH.t0) / COUNT_STEP_MS)
+    if (step !== CATCH.step) {
+      CATCH.step = step
+      u.count.forEach((im, i) => setVisible(im, i === step))
+      if (step < 3) buzz('light')
+    }
+    if (step >= 3) {
+      buzz('mid')
+      CATCH.phase = 'aim'
+      CATCH.t0 = t
+    }
+    return
+  }
+  if (CATCH.phase === 'aim') {
+    // GO! stays up for a moment while the ring starts moving
+    if (t - CATCH.t0 > GO_SHOW_MS) setVisible(u.count[3], false)
+    const f = ((t - CATCH.t0) % CATCH.period) / CATCH.period
+    const r = Math.round(RING_MAX - (RING_MAX - RING_MIN) * f)
+    CATCH.r = r
+    setRect(u.ring, { x: CX - r, y: CATCH_CY - r, w: r * 2, h: r * 2, radius: r })
+    return
+  }
+  if (t < CATCH.next) return
+  if (CATCH.phase === 'wobble') {
+    CATCH.wob++
+    // the charm wiggles: up to 3 times, a failed catch can break out early
+    if (CATCH.wob <= 3) {
+      setText(u.info, '.'.repeat(CATCH.wob))
+      setRect(u.target, { color: CATCH.wob % 2 ? WHITE : GOLD })
+      buzz('light')
+      CATCH.next = t + 650
+      if (!CATCH.ok && CATCH.wob >= 1 + Math.floor(Math.random() * 3)) CATCH.wob = 3
+      return
+    }
+    CATCH.phase = 'done'
+    CATCH.next = t + 1500
+    const e = B.enemy
+    const name = SPECIES[e.sp].name
+    if (CATCH.ok) {
+      buzz('strong')
+      showRating('gotcha')
+      setText(u.info, name + ' was caught!')
+    } else {
+      setVisible(u.charm, false)
+      setVisible(u.img, true)
+      showRating('free')
+      setText(u.info, '')
+    }
+    return
+  }
+  if (CATCH.phase === 'done') {
+    CATCH.phase = 'gone'
+    if (CATCH.ok) caught()
+    else {
+      goto('battle')
+      act('enemy')
+    }
+  }
+}
+
+function caught() {
+  const e = B.enemy
+  B.over = true
+  const m = newMon(e.sp, e.lv)
+  m.hp = Math.max(1, e.hp)
+  m.full = 50
+  m.joy = 45
+  st.mons.push(m)
+  const first = !st.caught[e.sp]
+  st.caught[e.sp] = true
+  st.seen[e.sp] = true
+  let where = 'It is waiting in your team list.'
+  if (st.party.length < PARTY_MAX) {
+    st.party.push(m.id)
+    where = 'It joined your party!'
+  }
+  const p = activeMon()
+  const msgs = gainXp(p, Math.round((10 + e.lv * 7) / 2))
+  notices.push({
+    title: (first ? 'NEW! ' : '') + SPECIES[e.sp].name,
+    text: where + (first ? ' New entry in your book.' : '') + '\n' + msgs.join('\n'),
+    img: 'mon/' + e.sp + '.png'
+  })
+  home()
+}
+
+// ---------- evolution ----------
+const EVO = { t0: 0, flips: 0, next: 0, done: false }
+const EVO_FLIPS = [500, 450, 400, 330, 280, 230, 190, 160, 140, 120, 110, 100]
+
+function buildEvolve(id) {
+  const u = screen.ui
+  const m = monById(id)
+  const from = m.sp
+  const to = SPECIES[from].evo
+  u.m = m
+  u.to = to
+  mkArtC(12, 't_evolution')
+  mkArt(CX - 90, 74, 'plate180')
+  u.a = mkImg(CX - 64, 96, 'mon/' + from + '.png')
+  u.b = mkImg(CX - 64, 96, 'mon/' + to + '.png')
+  setVisible(u.b, false)
+  u.text = mkTextS(24, 268, W - 48, 70, 24, WHITE, align.CENTER_H, 'What? ' + SPECIES[from].name + ' is evolving!')
+  u.ok = mkArtButton(95, 358, 'btn_ok', () => home())
+  setArtButton(u.ok, false)
+  EVO.t0 = now()
+  EVO.flips = 0
+  EVO.next = EVO.t0 + 900
+  EVO.done = false
+}
+
+function tickEvolve(t) {
+  const u = screen.ui
+  if (EVO.done || t < EVO.next) return
+  if (EVO.flips < EVO_FLIPS.length) {
+    EVO.flips++
+    const showB = EVO.flips % 2 === 1
+    setVisible(u.a, !showB)
+    setVisible(u.b, showB)
+    EVO.next = t + EVO_FLIPS[EVO.flips - 1]
+    if (EVO.flips % 3 === 0) buzz('light')
+    return
+  }
+  EVO.done = true
+  const m = u.m
+  const fromName = SPECIES[m.sp].name
+  const ratio = m.hp / maxHp(m)
+  m.sp = u.to
+  m.hp = Math.round(maxHp(m) * ratio)
+  st.seen[m.sp] = true
+  st.caught[m.sp] = true
+  st.pendingEvo = st.pendingEvo.filter((x) => x !== m.id)
+  setVisible(u.a, false)
+  setVisible(u.b, true)
+  setText(u.text, fromName + ' evolved into ' + SPECIES[m.sp].name + '!')
+  setTextColor(u.text, GOLD)
+  setArtButton(u.ok, true)
+  buzz('strong')
+  save()
+}
+
+// ---------- notice (one message with a picture) ----------
+function buildNotice(n) {
+  if (n.img) {
+    mkArt(CX - 76, 18, 'plate152')
+    mkImg(CX - 64, 30, n.img)
+  }
+  mkTextS(20, 174, W - 40, 40, 28, GOLD, align.CENTER_H, n.title)
+  mkTextS(28, 214, W - 56, 140, fitSize(n.text, W - 56, 140, 19, 13), WHITE, align.CENTER_H, n.text)
+  mkArtButton(95, 360, 'btn_ok', () => home())
+}
+
+// ---------- team ----------
+function teamOrder() {
+  const inParty = partyMons()
+  const rest = st.mons.filter((m) => st.party.indexOf(m.id) < 0).sort((a, b) => b.lv - a.lv)
+  return inParty.concat(rest)
+}
+
+function buildTeam(page) {
+  const list = teamOrder()
+  const pages = Math.max(1, Math.ceil(list.length / 3))
+  page = clamp(page || 0, 0, pages - 1)
+  mkArtC(2, 't_team')
+  mkText(40, 46, W - 80, 20, 15, LILAC, align.CENTER_H, list.length + (list.length === 1 ? ' Wristling' : ' Wristlings'))
+  list.slice(page * 3, page * 3 + 3).forEach((m, i) => {
+    const y = 70 + i * 80
+    const s = SPECIES[m.sp]
+    mkArt(28, y, 'pnl_row')
+    mkImg(36, y + 4, 'mon/' + m.sp + '_s.png')
+    mkTextS(106, y + 6, 160, 30, 22, WHITE, align.LEFT, s.name)
+    mkText(260, y + 6, 92, 30, 18, LILAC, align.RIGHT, 'Lv ' + m.lv)
+    const bar = mkBar(106, y + 44, 150, 10, GREEN)
+    const mx = maxHp(m)
+    setBar(bar, m.hp / mx, hpColor(m.hp / mx))
+    const slot = st.party.indexOf(m.id)
+    if (slot >= 0) mkText(262, y + 36, 90, 26, 16, GOLD, align.RIGHT, slot === 0 ? 'LEAD' : 'PARTY')
+    else if (m.full < HUNGRY_BELOW) mkText(262, y + 36, 90, 26, 16, ORANGE, align.RIGHT, 'HUNGRY')
+    addTap(28, y, W - 56, 72, () => goto('detail', { id: m.id, page }))
+  })
+  if (pages > 1) {
+    mkArtButton(50, 312, 'btn_prev', () => goto('team', (page + pages - 1) % pages))
+    mkTextS(130, 312, 130, 50, 20, LILAC, align.CENTER_H, page + 1 + ' / ' + pages)
+    mkArtButton(260, 312, 'btn_next', () => goto('team', (page + 1) % pages))
+  } else mkTextS(30, 312, W - 60, 50, 17, LILAC, align.CENTER_H, 'Tap a Wristling for details')
+  mkArtButton(95, 368, 'btn_back', () => home())
+}
+
+function buildDetail(arg) {
+  const m = monById(arg.id)
+  const s = SPECIES[m.sp]
+  const st2 = statsOf(m)
+  const el = ELEMENTS[s.el]
+  mkArt(CX - 70, 8, 'plate140')
+  mkImg(CX - 64, 12, 'mon/' + m.sp + '.png')
+  mkTextS(30, 148, W - 60, 34, 28, WHITE, align.CENTER_H, s.name + '  Lv ' + m.lv)
+  const fav = st.favKnown[m.sp] ? 'loves ' + BERRIES.find((b) => b.id === s.berry).name : 'favourite berry: ?'
+  mkText(30, 180, W - 60, 24, 17, el.color, align.CENTER_H, el.name + '   ' + fav)
+  const row = (y, label, frac, color, val) => {
+    mkText(40, y - 5, 54, 20, 15, LILAC, align.LEFT, label)
+    setBar(mkBar(96, y, 200, 10, color), frac, color)
+    mkText(300, y - 5, 60, 20, 15, LILAC, align.LEFT, val)
+  }
+  row(212, 'HP', m.hp / st2.hp, hpColor(m.hp / st2.hp), Math.ceil(m.hp) + '/' + st2.hp)
+  row(230, 'XP', m.lv >= MAX_LV ? 1 : m.xp / xpNext(m.lv), BLUE, m.lv >= MAX_LV ? 'MAX' : Math.floor((m.xp / xpNext(m.lv)) * 100) + '%')
+  row(248, 'FOOD', m.full / 100, ORANGE, Math.round(m.full) + '')
+  row(266, 'JOY', m.joy / 100, PINK, Math.round(m.joy) + '')
+  mkText(24, 276, W - 48, 22, 16, WHITE, align.CENTER_H, 'ATK ' + st2.atk + '   DEF ' + st2.def + '   SPD ' + st2.spd + (s.evo ? '   evolves Lv ' + s.evoLv + (s.evoPai ? ' + ' + s.evoPai + ' PAI' : '') : ''))
+  mkText(24, 296, W - 48, 22, 16, LILAC, align.CENTER_H, movesOf(m).map((id) => MOVES[id].name).join('  /  '))
+  const slot = st.party.indexOf(m.id)
+  mkArtButton(34, 322, slot === 0 ? 'btn_leader' : 'btn_lead', () => {
+    if (slot === 0) return
+    st.party = st.party.filter((x) => x !== m.id)
+    st.party.unshift(m.id)
+    if (st.party.length > PARTY_MAX) st.party.pop()
+    goto('detail', arg)
+  })
+  mkArtButton(143, 322, slot >= 0 ? 'btn_bench' : 'btn_join', () => {
+    if (slot >= 0) {
+      if (st.party.length <= 1) return toast('Keep at least one in the party', GOLD)
+      st.party = st.party.filter((x) => x !== m.id)
+    } else {
+      if (st.party.length >= PARTY_MAX) return toast('Party is full (3). BENCH one first', GOLD)
+      st.party.push(m.id)
+    }
+    goto('detail', arg)
+  })
+  mkArtButton(252, 322, 'btn_feed_s', () => goto('feed', { id: m.id, back: 'detail', page: arg.page }))
+  mkArtButton(95, 376, 'btn_back', () => goto('team', arg.page))
+}
+
+// ---------- feeding ----------
+function buildFeed(arg) {
+  const u = screen.ui
+  const m = monById(arg.id)
+  u.m = m
+  mkArt(CX - 70, 8, 'plate140')
+  u.img = mkImg(CX - 64, 12, 'mon/' + m.sp + '.png')
+  mkTextS(30, 148, W - 60, 34, 26, WHITE, align.CENTER_H, SPECIES[m.sp].name)
+  mkText(44, 186, 56, 20, 15, LILAC, align.LEFT, 'FOOD')
+  u.food = mkBar(100, 190, 200, 12, ORANGE)
+  mkText(44, 206, 56, 20, 15, LILAC, align.LEFT, 'JOY')
+  u.joy = mkBar(100, 210, 200, 12, PINK)
+  u.counts = BERRIES.map((b, i) => {
+    const x = 33 + i * 82
+    mkArt(x, 234, 'pnl_cell_feed')
+    mkImg(x + 15, 242, 'item/berry_' + b.id + '.png')
+    addTap(x, 234, 78, 92, () => feed(b))
+    return mkTextS(x, 292, 78, 28, 20, WHITE, align.CENTER_H, '')
+  })
+  u.hint = mkTextS(24, 330, W - 48, 30, 18, LILAC, align.CENTER_H, 'Tap a berry to feed')
+  mkArtButton(95, 368, 'btn_back', () => {
+    if (arg.back === 'detail') goto('detail', { id: m.id, page: arg.page })
+    else home()
+  })
+  updateFeed()
+}
+
+function updateFeed() {
+  const u = screen.ui
+  setBar(u.food, u.m.full / 100)
+  setBar(u.joy, u.m.joy / 100)
+  BERRIES.forEach((b, i) => {
+    setText(u.counts[i], 'x' + st.berries[b.id])
+    setTextColor(u.counts[i], st.berries[b.id] > 0 ? WHITE : DIM)
+  })
+}
+
+function feed(b) {
+  const u = screen.ui
+  const m = u.m
+  const s = SPECIES[m.sp]
+  if (st.berries[b.id] <= 0) return toast('No ' + b.name + 's: walk to find more', GOLD)
+  if (m.full >= 95) return toast(s.name + ' is full!', ORANGE)
+  st.berries[b.id]--
+  const fav = s.berry === b.id
+  m.full = clamp(m.full + b.full + (fav ? FAV_FULL_BONUS : 0), 0, 100)
+  m.joy = clamp(m.joy + b.joy + (fav ? FAV_JOY_BONUS : 0), 0, 100)
+  m.hp = Math.min(maxHp(m), m.hp + maxHp(m) * FEED_HEAL)
+  if (fav) {
+    const first = !st.favKnown[m.sp]
+    st.favKnown[m.sp] = true
+    setText(u.hint, first ? 'Its FAVOURITE! Lots of JOY!' : 'Its favourite! Lots of JOY!')
+    setTextColor(u.hint, PINK)
+    buzz('strong')
+  } else {
+    setText(u.hint, pick(['Yum!', 'Munch munch...', 'Tasty!', 'Thanks!']))
+    setTextColor(u.hint, WHITE)
+    buzz('light')
+  }
+  queueEvolution(m, null)
+  if (st.pendingEvo.indexOf(m.id) >= 0) toast(s.name + ' is ready to evolve!', GOLD)
+  updateFeed()
+  save()
+}
+
+// ---------- book ----------
+// The grid shows "???" until you have met a creature, then its name. The sprite is
+// a silhouette until you catch it. Tapping a creature opens its page with a full
+// "where to find it" explanation, built from the same settings the game uses.
+
+// how a real-life condition works, in full
+function condText(c) {
+  if (c === 'rain') return 'Only on rainy or stormy days (watch forecast).'
+  if (c === 'sun') return 'Only on sunny days, in daylight (06:00 - 20:00).'
+  if (c === 'kcal') return 'Only after you burn ' + fmt(KCAL_SPAWN) + ' kcal in a day.'
+  if (c === 'weekend') return 'Only on Saturday and Sunday, 12:00 - 18:00.'
+  if (c === 'dark') return 'Only in the dark: the watch light sensor must read under ' + DARK_LUX + ' lux (a dark room, under a blanket, outside at night).'
+  if (c === 'mist') return 'On foggy or hazy days, or at night after ' + fmt(MIST_NIGHT_STEPS) + ' steps that day.'
+  if (c === 'north') return 'Point the top of your watch NORTH when you tap EXPLORE. The den shows which way you face.'
+  if (c === 'dawn') return 'Point the top of your watch EAST when you explore, between 05:00 and 09:00.'
+  if (c === 'compass') return 'Anywhere, if your watch has a calibrated compass. In battle it points somewhere: face that way or it may swim away.'
+  return ''
+}
+
+// the full "where to find it" text for one creature
+// worst: pretend you have met nobody (the longest version, used to pick the text size)
+function findText(id, worst) {
+  const s = SPECIES[id]
+  const parts = []
+  if (PRE[id]) {
+    const p = SPECIES[PRE[id]]
+    // name the earlier form only once you have met it yourself (no spoilers)
+    const metPre = !worst && (st.seen[PRE[id]] || st.caught[PRE[id]])
+    parts.push('Evolves from ' + (metPre ? p.name : "one you haven't met yet") + ' at Lv ' + p.evoLv + (p.evoPai ? ' with ' + p.evoPai + '+ weekly PAI' : '') + '. Also wild once your lead is Lv ' + WILD_EVOLVED_LV + '+.')
+  }
+  if (s.dream) parts.push('Rare. After a night with lots of REM sleep it may wait as a DREAM VISITOR in the morning.')
+  else if (id === 'solarion') parts.push('Rare. Only between 11:00 and 14:00, in ' + pct(RARE_NOON_CHANCE) + ' of explores.')
+  else if (id === 'boulderon') parts.push('Rare. Only after ' + fmt(RARE_WALK_STEPS) + ' steps in a day, in ' + pct(RARE_WALK_CHANCE) + ' of explores.')
+  if (s.cond) parts.push(condText(s.cond) + ((s.condWeight || COND_WEIGHT) > 1 ? ' Easier to meet while that lasts.' : ''))
+  if (s.time === 'night') parts.push('Only at night (20:00 - 06:00).' + (s.el === 'shadow' ? ' Shadow ones are 3x as likely then.' : ''))
+  if (STARTERS.indexOf(id) >= 0) parts.push('One of the three starters.')
+  if (!parts.length || (STARTERS.indexOf(id) >= 0 && !s.cond && !s.time)) parts.push('Anywhere, any time: spend a TRACK on EXPLORE.')
+  return parts.join(' ')
+}
+
+function buildBook(arg) {
+  const per = 12
+  const pages = Math.ceil(BOOK.length / per)
+  const info = arg && typeof arg === 'object' ? arg.info : null
+  let page = arg && typeof arg === 'object' ? arg.page : arg
+  page = clamp(page || 0, 0, pages - 1)
+  const caughtN = BOOK.filter((id) => st.caught[id]).length
+  mkArtC(2, 't_book')
+  mkText(40, 46, W - 80, 20, 15, LILAC, align.CENTER_H, 'caught ' + caughtN + ' / ' + BOOK.length + '  -  tap one for details')
+  BOOK.slice(page * per, page * per + per).forEach((id, i) => {
+    const x = 37 + (i % 4) * 80
+    const y = 68 + Math.floor(i / 4) * 82
+    mkArt(x, y, 'pnl_cell')
+    const caught = st.caught[id]
+    const seen = caught || st.seen[id]
+    mkImg(x + 6, y + 2, 'mon/' + id + (caught ? '_s' : '_x') + '.png')
+    mkText(x, y + 60, 76, 20, 13, caught ? WHITE : seen ? LILAC : DIM, align.CENTER_H, seen ? SPECIES[id].name : '???')
+    addTap(x, y, 76, 80, () => goto('book', { page, info: id }))
+  })
+  mkArtButton(50, 316, 'btn_prev', () => goto('book', (page + pages - 1) % pages))
+  mkTextS(130, 316, 130, 50, 20, LILAC, align.CENTER_H, page + 1 + ' / ' + pages)
+  mkArtButton(260, 316, 'btn_next', () => goto('book', (page + 1) % pages))
+  mkArtButton(95, 372, 'btn_back', () => home())
+  if (info) buildBookPage(info, page)
+}
+
+// one creature's page, on top of the grid (a tap anywhere closes it)
+// ---------- one text size for the guide and the book ----------
+// The biggest size at which EVERY guide page and every book page fits, so all of
+// them look the same. Worked out once (the texts only change with the game data).
+const GUIDE_BOX = { x: 28, y: 66, w: 334, h: 296 }
+const BOOK_BOX = { x: 28, y: 232, w: 334, h: 154 }
+let pageSize = 0
+function pageTextSize() {
+  if (pageSize) return pageSize
+  let size = 18
+  for (const p of guidePages()) if (p.text) size = Math.min(size, fitSize(p.text, GUIDE_BOX.w, GUIDE_BOX.h, 18, 12))
+  for (const id of BOOK) size = Math.min(size, fitSize(findText(id, true), BOOK_BOX.w, BOOK_BOX.h, 18, 12))
+  pageSize = size
+  return size
+}
+
+function buildBookPage(id, page) {
+  const s = SPECIES[id]
+  const caught = st.caught[id]
+  const seen = caught || st.seen[id]
+  mkRect(0, 0, W, H, INK, 0)
+  mkArt(20, 20, 'pnl_big')
+  mkArt(CX - 70, 24, 'plate140')
+  if (caught) mkImg(CX - 64, 28, 'mon/' + id + '.png')
+  else mkImg(CX - 32, 58, 'mon/' + id + '_x.png')
+  mkTextS(30, 162, W - 60, 30, 26, caught ? WHITE : seen ? LILAC : DIM, align.CENTER_H, seen ? s.name : '???')
+  const status = caught ? 'CAUGHT' : seen ? 'MET, NOT CAUGHT YET' : 'NOT MET YET'
+  mkText(30, 190, W - 60, 20, 15, caught ? GREEN : seen ? GOLD : DIM, align.CENTER_H, status + (seen ? '   ' + ELEMENTS[s.el].name + '   ' + RARITY[rarityOf(id)].name : ''))
+  mkText(30, 210, W - 60, 22, 15, GOLD, align.CENTER_H, 'WHERE TO FIND IT')
+  mkText(BOOK_BOX.x, BOOK_BOX.y, BOOK_BOX.w, BOOK_BOX.h, pageTextSize(), WHITE, align.CENTER_H, findText(id))
+  mkText(30, 390, W - 60, 22, 14, DIM, align.CENTER_H, 'tap anywhere to close')
+  addTap(0, 0, W, H, () => goto('book', page))
+}
+
+// ---------- guide (swipe left on the den) ----------
+// KEEP THIS UP TO DATE: every rule shown here is built from the constants and
+// data the game itself uses, so tuning a number updates the guide. When you add
+// or change a mechanic, add or change its page here too.
+function pct(x) {
+  return Math.round(x * 100) + '%'
+}
+
+// a real-life condition in a few words, for the guide (no creature names: those are
+// for the book, once you have met them)
+function guideCond(c) {
+  if (c === 'rain') return 'Rainy or stormy days (watch forecast)'
+  if (c === 'sun') return 'Sunny days, in daylight'
+  if (c === 'kcal') return 'After you burn ' + fmt(KCAL_SPAWN) + ' kcal in a day'
+  if (c === 'weekend') return 'Weekend afternoons (Sat / Sun 12:00 - 18:00)'
+  if (c === 'dark') return 'In the dark (watch light sensor)'
+  if (c === 'mist') return 'Fog or haze, or nights after ' + fmt(MIST_NIGHT_STEPS) + ' steps'
+  if (c === 'north') return 'Watch pointing NORTH when you explore'
+  if (c === 'dawn') return 'Watch pointing EAST, 05:00 - 09:00'
+  if (c === 'compass') return 'Any time with a compass; in battle, face where it points'
+  return c
+}
+
+// the real-life conditions some Wristlings need, 5 per page so the text fits
+function realWorldPages() {
+  const conds = []
+  for (const id of BOOK) if (SPECIES[id].cond && !PRE[id] && conds.indexOf(SPECIES[id].cond) < 0) conds.push(SPECIES[id].cond)
+  const list = conds.map((c) => '- ' + guideCond(c))
+  const pages = []
+  for (let i = 0; i < list.length; i += 5) {
+    pages.push({
+      title: 'REAL-WORLD ONES' + (list.length > 5 ? ' ' + (i / 5 + 1) : ''),
+      text: (i === 0 ? 'Some Wristlings only come out while something is true where you are (' + COND_WEIGHT + 'x as likely then):\n\n' : '') + list.slice(i, i + 5).join('\n') + (i + 5 >= list.length ? '\n\nTap one in the BOOK to see its rule.' : '')
+    })
+  }
+  return pages
+}
+
+function guidePages() {
+  const pages = [
+    {
+      title: 'WELCOME',
+      text:
+        'Wristlings live on your wrist.\n\nWalk to earn TRACKS. Spend a track on EXPLORE to meet a wild Wristling, then battle it, catch it, feed it and help it evolve.\n\nSwipe left / right (or tap the arrows) to turn pages.'
+    },
+    {
+      title: 'WALKING',
+      text:
+        '1 TRACK every ' + fmt(STEPS_PER_TRACK) + ' steps (max ' + TRACK_CAP + ' saved, so spend them!).\n' +
+        'A free track every ' + FREE_TRACK_MIN + ' minutes.\n\n' +
+        '1 berry every ' + fmt(STEPS_PER_BERRY) + ' steps.\n' +
+        '1 charm every ' + fmt(STEPS_PER_CHARM) + ' steps.\n' +
+        'Wins can also drop a berry (' + pct(BERRY_DROP) + ') or a charm (' + pct(CHARM_DROP) + ').\n\n' +
+        'Steps count from midnight, like your watch.'
+    },
+    {
+      title: 'HEART & SLEEP',
+      text:
+        'TRAIN: minutes today with your pulse well above resting become XP for your LEAD (each minute = ' + TRAIN_XP_BASE + ' + its level XP).\n\n' +
+        'SLEEP: ' + GOOD_SLEEP_MIN / 60 + 'h or more fully heals the team and adds JOY. Lots of REM sleep can bring a rare DREAM VISITOR in the morning.'
+    },
+    {
+      title: 'TURN ORDER',
+      text:
+        'Pick a move, then both sides act:\n\n' +
+        '1. GUARD always goes first.\n' +
+        '2. Otherwise the FASTER one goes first (SPD in its details).\n' +
+        '3. Same speed: coin flip.\n\n' +
+        'Your battle panel says FIRST or SECOND.\n' +
+        'If your first hit knocks it out, it never attacks.\n' +
+        'SWAP and failed CATCH: the enemy attacks. RUN always works.'
+    },
+    {
+      title: 'BATTLE SCREEN',
+      text:
+        'Top: the wild one. Middle: yours, with FIRST / SECOND.\n\n' +
+        'TAP A PANEL to compare HP, ATK, DEF and SPD (green = better). A wild one shows its stats once you have caught that species.\n\n' +
+        'Move buttons say STRONG / WEAK.'
+    },
+    {
+      title: 'MOVES',
+      text:
+        'Buttons: 1 main attack, 2 another element (if it has one), 3 GUARD / REST.\n\n' +
+        'Weak: ' + MOVES.ember.pow + ' power, never miss.\n' +
+        'Strong: ' + MOVES.flare.pow + ' power, ' + MOVES.flare.acc + '% hit.\n' +
+        'TACKLE: no element, never resisted.\n' +
+        'GUARD: next hit does ' + pct(GUARD_TAKEN) + '.\n' +
+        'REST: heals ' + pct(REST_HEAL) + ' (LONG NAP ' + pct(MOVES.nap.heal) + '), ' + RESTS_PER_BATTLE + 'x a battle.\n' +
+        'Own element: x' + SAME_ELEMENT_BONUS + '. Crit: 1 in ' + Math.round(1 / CRIT_CHANCE) + ', x' + CRIT_MULT
+    },
+    { title: 'ELEMENTS', chart: true },
+    {
+      title: 'CATCHING',
+      text:
+        'Tap CATCH (uses a charm). After 3-2-1-GO, tap when the rings meet.\n\n' +
+        'Chance: ' + pct(CATCH_BASE) + ' + up to ' + pct(CATCH_HP) + ' for lost HP + ' + pct(CATCH_PERFECT) + ' PERFECT / ' + pct(CATCH_GOOD) + ' GOOD (max ' + pct(CATCH_MAX) + ').\n' +
+        'UNCOMMON x' + RARITY.uncommon.mult + ', RARE x' + RARITY.rare.mult + ' (faster ring).\n' +
+        'Over ' + CATCH_OVERLEVEL + ' levels above your lead: -' + pct(CATCH_OVERLEVEL_PENALTY) + '.\n\n' +
+        'Chip HP with TACKLE first.'
+    },
+    {
+      title: 'TEAM',
+      text:
+        'Up to ' + PARTY_MAX + ' fight in your PARTY; the LEAD goes first. Set them in TEAM.\n\n' +
+        'Win: the one that won gets full XP, other standing party members half.\n\n' +
+        'Fainted? The next one jumps in.\n' +
+        'Out of battle they heal ' + pct(HP_REGEN_PER_MIN) + ' of HP a minute.'
+    },
+    {
+      title: 'CARE',
+      text:
+        'FOOD drops ' + FULL_DECAY_PER_HOUR + ' an hour. Below ' + HUNGRY_BELOW + ' = HUNGRY: -' + pct(MOOD_EFFECT) + ' power.\n' +
+        'JOY ' + HAPPY_FROM + '+ = HAPPY: +' + pct(MOOD_EFFECT) + ' power.\n\n' +
+        'Each species has a FAVOURITE berry: +' + FAV_FULL_BONUS + ' food, +' + FAV_JOY_BONUS + ' joy extra. Feeding also heals ' + pct(FEED_HEAL) + '.\n\n' +
+        'Evolving needs the right level AND ' + EVOLVE_JOY + '+ JOY.' +
+        (BOOK.some((id) => SPECIES[id].evoPai)
+          ? ' A few also need ' + Math.min(...BOOK.filter((id) => SPECIES[id].evoPai).map((id) => SPECIES[id].evoPai)) + '+ weekly PAI (the book says which).'
+          : '')
+    },
+    {
+      title: 'WHEN & WHERE',
+      text:
+        'NIGHT: some Wristlings only come out from 20:00 to 06:00, and all SHADOW ones are 3x as likely then.\n\n' +
+        'EVOLVED forms show up wild once your lead is Lv ' + WILD_EVOLVED_LV + '+.\n\n' +
+        'RARE: one only at noon (11:00 - 14:00), one only after ' + fmt(RARE_WALK_STEPS) + ' steps in a day, and one visits after a night with lots of REM sleep.'
+    },
+    ...realWorldPages(),
+    {
+      title: 'TIPS',
+      text:
+        '- Check the move hints: STRONG / WEAK.\n' +
+        '- SWAP to one that resists the enemy: it takes the free hit.\n' +
+        '- Finish enemies before they REST (they do below ' + pct(AI_REST_BELOW) + ' HP).\n' +
+        '- HAPPY vs HUNGRY is a ' + pct(MOOD_EFFECT * 2) + ' swing: keep everyone fed.\n' +
+        '- Save charms for species you do not have yet.\n' +
+        '- In the BOOK, tap any creature to see where to find it.'
+    }
+  ]
+  if (TEST_MODE)
+    pages.push({
+      title: 'TEST MODE',
+      text:
+        'Den buttons that fake watch data:\n\n' +
+        '+1K STEPS, +1 HOUR (clock)\nWORKOUT: 30 min, 150 kcal, 30 PAI\nSLEEP 8H: a night with lots of REM\n' +
+        'TEST: rain, sun, fog, dark, weekend\nFACE: where the watch points\n\n' +
+        'Set TEST_MODE off before release.'
+    })
+  return pages
+}
+
+function buildGuide(page) {
+  const pages = guidePages()
+  page = clamp(page || 0, 0, pages.length - 1)
+  screen.arg = page
+  const p = pages[page]
+  mkTextS(40, 8, W - 80, 38, 28, GOLD, align.CENTER_H, p.title)
+  mkText(40, 42, W - 80, 20, 14, LILAC, align.CENTER_H, page + 1 + ' / ' + pages.length)
+  if (p.chart) {
+    // one row per element: what it beats
+    Object.keys(ELEMENTS).forEach((el, i) => {
+      const y = 70 + i * 30
+      const e = ELEMENTS[el]
+      mkRect(30, y + 9, 10, 10, e.color, 5)
+      mkTextS(46, y, 96, 28, 17, e.color, align.LEFT, e.name)
+      mkText(140, y, 222, 28, 15, WHITE, align.LEFT, 'beats ' + STRONG[el].map((x) => ELEMENTS[x].name).join(' '))
+    })
+    mkText(24, 312, W - 48, 50, 15, LILAC, align.CENTER_H, 'Beats = x' + SUPER_MULT + ' damage. Hitting the same element, or one that beats yours = x' + WEAK_MULT)
+  } else mkTextS(GUIDE_BOX.x, GUIDE_BOX.y, GUIDE_BOX.w, GUIDE_BOX.h, pageTextSize(), WHITE, align.CENTER_H, p.text)
+  mkArtButton(30, 370, 'btn_prev', () => goto('guide', page - 1))
+  mkArtButton(120, 370, 'btn_back_s', () => home())
+  mkArtButton(280, 370, 'btn_next', () => goto('guide', page + 1))
+}
+
+const SCREENS = {
+  starter: buildStarter,
+  den: buildDen,
+  battle: buildBattle,
+  catch: buildCatch,
+  evolve: buildEvolve,
+  notice: buildNotice,
+  team: buildTeam,
+  detail: buildDetail,
+  feed: buildFeed,
+  book: buildBook,
+  guide: buildGuide
+}
+
+// ---------- input ----------
+// A tap fires when the finger lifts (so a swipe that starts on a button does
+// not press it). Watches that never report finger-lift fall back to firing
+// 350 ms after touch-down. The catch screen fires on touch-down for timing.
+let down = null
+let upSeen = false
+
+function onDown(e) {
+  try {
+    if (!e || typeof e.x !== 'number') return
+    if (screen.instant) return fireTap(e.x, e.y)
+    down = { x: e.x, y: e.y, t: now(), scr: screen }
+  } catch (err) {
+    showError('tap', err)
+  }
+}
+function onUp(e) {
+  try {
+    upSeen = true
+    const d = down
+    down = null
+    if (!d || d.scr !== screen) return
+    if (e && typeof e.x === 'number' && (Math.abs(e.x - d.x) > 40 || Math.abs(e.y - d.y) > 40)) return
+    fireTap(d.x, d.y)
+  } catch (err) {
+    showError('tap', err)
+  }
+}
+function fireTap(x, y) {
+  // the battle stats overlay: any tap closes it
+  if (screen.name === 'battle' && screen.ui.stats && screen.ui.stats.open) {
+    closeStats()
+    return
+  }
+  // during battle messages a tap skips the wait
+  if (screen.name === 'battle' && B.busy) {
+    B.until = 0
+    return
+  }
+  const taps = screen.taps
+  for (let i = taps.length - 1; i >= 0; i--) {
+    const b = taps[i]
+    if (x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h) {
+      b.fn()
+      return
+    }
+  }
+}
+
+function onSwipe(ev) {
+  down = null
+  // the guide: swipe left on the den opens it, then left / right turns pages
+  if (screen.name === 'guide') {
+    if (ev === GESTURE_LEFT) goto('guide', screen.arg + 1)
+    else if (ev === GESTURE_RIGHT) {
+      if (screen.arg > 0) goto('guide', screen.arg - 1)
+      else home()
+    } else return false
+    return true
+  }
+  if (ev === GESTURE_LEFT && screen.name === 'den') {
+    goto('guide', 0)
+    return true
+  }
+  if (ev !== GESTURE_RIGHT) return false
+  const n = screen.name
+  if (n === 'team' || n === 'book') {
+    home()
+    return true
+  }
+  if (n === 'detail') {
+    goto('team', screen.arg.page)
+    return true
+  }
+  if (n === 'feed') {
+    home()
+    return true
+  }
+  // in battle / catch / evolve the swipe is blocked so you cannot leave by accident
+  return n === 'battle' || n === 'catch' || n === 'evolve'
+}
+
+// ---------- main loop ----------
+function tick() {
+  try {
+    const t = now()
+    if (down && !upSeen && t - down.t > 350) {
+      const d = down
+      down = null
+      if (d.scr === screen) fireTap(d.x, d.y)
+    }
+    if (screen.toastUntil && t > screen.toastUntil) {
+      screen.toastUntil = 0
+      setVisible(screen.ui.toastBg, false)
+      setVisible(screen.ui.toast, false)
+    }
+    const n = screen.name
+    if (n === 'battle') tickBattle(t)
+    else if (n === 'catch') tickCatch(t)
+    else if (n === 'evolve') tickEvolve(t)
+    // once a minute: hunger, healing, free tracks
+    if (t - lastMinute >= 60000) {
+      passTime(t - lastMinute, n === 'battle' || n === 'catch') // no healing mid-fight
+      lastMinute = t
+    }
+    if (n === 'den') denIdle(t)
+    if (n === 'den' && t % 500 < TICK_MS) updateFacing()
+    if (n === 'den' && t - lastSensor >= 5000) {
+      lastSensor = t
+      updateSteps()
+      if (t - lastHeart >= 60000) {
+        lastHeart = t
+        updateHeart()
+      }
+      updateDen()
+    }
+    if (t - lastSave >= SAVE_EVERY_MS) save()
+  } catch (e) {
+    if (timer !== null) clearInterval(timer)
+    timer = null
+    showError('tick', e)
+  }
+}
+
+function showError(where, e) {
+  const stack = e && e.stack ? String(e.stack).split('\n').slice(0, 4).join('\n') : ''
+  const msg = where + ' / ' + step + ': ' + (e && e.message ? e.message : String(e)) + '\n' + stack
+  console.log('WRISTLINGS ERROR ' + msg)
+  createWidget(widget.TEXT, { x: 15, y: 40, w: (W || 390) - 30, h: 380, text: msg, text_size: 18, color: RED, text_style: text_style.WRAP })
+}
+
+Page({
+  build() {
+    try {
+      step = 'device'
+      const info = getDeviceInfo()
+      W = info.width
+      H = info.height
+      CX = Math.round(W / 2)
+      try {
+        setStatusBarVisible(false)
+      } catch (e) {
+        // keep the status bar
+      }
+      step = 'load'
+      // forget any screen left over from an earlier run of this page
+      screen = { name: '', ws: [], taps: [], ui: {} }
+      notices.length = 0
+      weatherCache = { t: 0, kind: null }
+      storage = new LocalStorage()
+      st = load()
+      timeOffset = TEST_MODE ? st.test.offset || 0 : 0
+      const t = now()
+      if (st.last) passTime(t - st.last)
+      lastMinute = t
+      lastSensor = t
+      if (st.started) {
+        updateSteps()
+        checkSleep()
+      }
+      step = 'screen'
+      if (!st.started) goto('starter')
+      else home()
+      try {
+        onGesture({ callback: onSwipe })
+      } catch (e) {
+        console.log('WRISTLINGS no swipe events: ' + e)
+      }
+      timer = setInterval(tick, TICK_MS)
+    } catch (e) {
+      showError('build', e)
+    }
+  },
+  onDestroy() {
+    if (timer !== null) clearInterval(timer)
+    compassOff()
+    try {
+      offGesture()
+    } catch (e) {
+      // nothing to undo
+    }
+    if (st) save()
+  }
+})
