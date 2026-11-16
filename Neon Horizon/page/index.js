@@ -452,7 +452,7 @@ function buildBands() {
     const h = Math.max(1, Math.round((y - HOR) * D.f))
     const y1 = Math.min(H - 1, y + h - 1)
     const dy = (y + y1) / 2 - HOR + 0.5
-    bands.push({ y0: y, y1, dy, z: ZK / dy, sc: RK * dy, k: 1 - dy / GROUND, cx: 0, wx: 0, road: 0, rum1: 0, rum2: 0, lane: 0, sunRef: 0, beam: 0 })
+    bands.push({ y0: y, y1, dy, z: ZK / dy, sc: RK * dy, k: 1 - dy / GROUND, cx: 0, wx: 0, road: 0, rum1: 0, rum2: 0, lane: 0, sunRef: 0, glint: 0, beam: 0, rw: 0, rx: 0 })
     y = y1 + 1
   }
   nb = bands.slice().reverse()
@@ -471,6 +471,7 @@ function bandColors() {
     b.lane = mix(theme.lane, b.road, 0.15 + 0.6 * k * k)
     const q = clamp((1 - k) / 0.34, 0, 1)
     b.sunRef = mix(theme.sunBot, g, 0.15 + 0.8 * q)
+    b.glint = mix(b.road, b.sunRef, 0.28)
     b.beam = mix(b.road, 0xfff6d0, 0.1 * clamp(1 - b.z / 26, 0, 1))
   }
 }
@@ -549,7 +550,7 @@ function render(t) {
   } catch (e) {
     throw new Error('canvas clear ' + W + 'x' + CVH + ': ' + e)
   }
-  rstep = 'road'
+  rstep = 'geometry'
 
   // road geometry, near -> far: integrate the curvature twice
   let zPrev = 0
@@ -565,7 +566,23 @@ function render(t) {
     zPrev = b.z
   }
 
-  // road bands
+  // The sun's reflection on the wet ground: a rippling, broken mirror image under the sun.
+  // It is drawn first, so the road covers it; on the asphalt only a faint glint shows through,
+  // under the lane markings, so the road always stays readable.
+  rstep = 'sun reflection'
+  const sx = sunScreenX()
+  const R0 = theme.sunR
+  for (let i = 0; i < bands.length; i++) {
+    const b = bands[i]
+    b.rw = 0
+    if (b.k < 0.66 || i % D.sunEvery) continue
+    const q = (1 - b.k) / 0.34
+    b.rw = R0 * (0.85 - 0.6 * q) * (0.78 + 0.22 * Math.sin(t * 4 + i * 1.3))
+    b.rx = sx + Math.sin(t * 2.3 + i * 0.9) * 3 * (0.3 + q)
+    R(b.rx - b.rw, b.y0, b.rx + b.rw, b.y1, b.sunRef)
+  }
+
+  rstep = 'road'
   for (let i = 0; i < bands.length; i++) {
     const b = bands[i]
     const hw = b.sc
@@ -573,6 +590,11 @@ function render(t) {
     const ph = Math.floor((cam.pos + b.z) / STRIPE) & 1
     R(b.cx - hw - rw, b.y0, b.cx + hw + rw, b.y1, ph ? b.rum2 : b.rum1)
     R(b.cx - hw, b.y0, b.cx + hw, b.y1, b.road)
+    if (b.rw > 0) {
+      const gx1 = Math.max(b.rx - b.rw, b.cx - hw)
+      const gx2 = Math.min(b.rx + b.rw, b.cx + hw)
+      if (gx2 > gx1) R(gx1, b.y0, gx2, b.y1, b.glint)
+    }
     if (D.beam && b.z < 26 && mode === 'play') {
       const bw = (0.3 + 0.03 * b.z) * b.sc
       R(W / 2 + shakeX - bw, b.y0, W / 2 + shakeX + bw, b.y1, b.beam)
@@ -584,20 +606,6 @@ function render(t) {
       R(l1 - lw / 2, b.y0, l1 + lw / 2, b.y1, b.lane)
       R(l2 - lw / 2, b.y0, l2 + lw / 2, b.y1, b.lane)
     }
-  }
-
-  rstep = 'sun reflection'
-  // the sun's reflection: a rippling, broken mirror image under it
-  const sx = sunScreenX()
-  const R0 = theme.sunR
-  for (let i = 0; i < bands.length; i++) {
-    const b = bands[i]
-    if (b.k < 0.66) break
-    if (i % D.sunEvery) continue
-    const q = (1 - b.k) / 0.34
-    const w = R0 * (0.85 - 0.6 * q) * (0.78 + 0.22 * Math.sin(t * 4 + i * 1.3))
-    const off = Math.sin(t * 2.3 + i * 0.9) * 3 * (0.3 + q)
-    R(sx - w + off, b.y0, sx + w + off, b.y1, b.sunRef)
   }
 
   rstep = 'sprites'
