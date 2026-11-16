@@ -16,3 +16,6 @@ Thumbs.db
 
 # generated previews (published copies live in docs/play)
 tools/preview/
+
+# private notes for Claude (contact details) - never publish
+HANDOFF-PRIVATE.md
