@@ -30,13 +30,9 @@ import { createWidget, deleteWidget, widget, event, prop, align, text_style, set
 import { getDeviceInfo } from '@zos/device'
 import { LocalStorage } from '@zos/storage'
 import { Time, Step, HeartRate, Sleep, Weather, Calorie, Pai, Screen, Compass, Vibrator, VIBRATOR_SCENE_SHORT_LIGHT, VIBRATOR_SCENE_SHORT_STRONG, VIBRATOR_SCENE_SHORT_MIDDLE } from '@zos/sensor'
-import { onGesture, offGesture, GESTURE_LEFT, GESTURE_RIGHT } from '@zos/interaction'
+import { onGesture, offGesture, GESTURE_LEFT, GESTURE_RIGHT, GESTURE_UP, GESTURE_DOWN } from '@zos/interaction'
 import { ART } from './uiart'
 import { ELEMENTS, STRONG, MOVES, SPECIES, BOOK, STARTERS, BERRIES, effectiveness, FAV_FULL_BONUS, FAV_JOY_BONUS } from './data'
-
-// TEST MODE: shows +1K STEPS and +1 HOUR buttons on the den so the game can be
-// tried without walking (or without a watch). Set to false before release.
-const TEST_MODE = true
 
 // ---------- balance ----------
 const TICK_MS = 50
@@ -81,6 +77,7 @@ const CATCH_MAX = 0.9 // never better than this
 const CATCH_OVERLEVEL = 3
 const CATCH_OVERLEVEL_PENALTY = 0.1
 const SAVE_EVERY_MS = 10000
+const RESET_CONFIRM_MS = 3000 // Settings > RESET: tap again within this to erase the game
 // rare Wristlings
 const RARE_NOON_CHANCE = 0.08 // Solarion: only between 11:00 and 14:00
 const RARE_WALK_STEPS = 10000 // Boulderon: only once you walked this much today
@@ -132,13 +129,12 @@ let screen = { name: '', ws: [], taps: [], ui: {} }
 
 // ---------- small helpers ----------
 let timeSensor = null
-let timeOffset = 0 // test mode: how far the +1 HOUR button moved the clock
 function now() {
   try {
     if (!timeSensor) timeSensor = new Time()
-    return timeSensor.getTime() + timeOffset
+    return timeSensor.getTime()
   } catch (e) {
-    return Date.now() + timeOffset
+    return Date.now()
   }
 }
 function dayKey(t) {
@@ -166,7 +162,10 @@ function fmt(n) {
 }
 
 let vib = null
-function buzz(kind) {
+// cat: 'battle' | 'catch' | 'other' - each can be switched off in SETTINGS
+function buzz(kind, cat) {
+  const set = st && st.settings
+  if (set && ((cat === 'battle' && !set.vibBattle) || (cat === 'catch' && !set.vibCatch) || (cat === 'other' && !set.vibOther))) return
   try {
     if (!vib) vib = new Vibrator()
     const mode = kind === 'strong' ? VIBRATOR_SCENE_SHORT_STRONG : kind === 'mid' ? VIBRATOR_SCENE_SHORT_MIDDLE : VIBRATOR_SCENE_SHORT_LIGHT
@@ -311,7 +310,7 @@ function freshState() {
     berries: { red: 2, blue: 2, green: 2, gold: 0 },
     walk: { day: 0, tracks: 0, berries: 0, charms: 0 },
     train: { day: 0, used: 0 },
-    test: { day: 0, steps: 0, hr: 0, kcal: 0, pai: 0, offset: 0, wx: '', face: '' },
+    settings: { vibBattle: true, vibCatch: true, vibOther: true },
     sleepDay: 0,
     dream: false,
     seen: {},
@@ -362,11 +361,7 @@ function readSteps() {
   } catch (e) {
     n = -1
   }
-  if (!TEST_MODE) return n
-  // test mode: the +1K STEPS button adds fake steps on top of the real ones (reset each day)
-  const day = dayKey(now())
-  if (st.test.day !== day) st.test = { day, steps: 0, hr: 0, kcal: 0, pai: st.test.pai || 0, offset: st.test.offset, wx: st.test.wx || '', face: st.test.face || '' }
-  return Math.max(n, 0) + st.test.steps
+  return n
 }
 
 function updateSteps() {
@@ -423,8 +418,6 @@ function updateHeart() {
   }
   const day = dayKey(now())
   if (st.train.day !== day) st.train = { day, used: 0 }
-  // test mode: the WORKOUT button adds fake active minutes
-  if (TEST_MODE && st.test.day === day && st.test.hr) activeMinutes = Math.max(activeMinutes, 0) + st.test.hr
 }
 function trainMinutes() {
   return activeMinutes < 0 ? 0 : Math.max(0, activeMinutes - st.train.used)
@@ -482,7 +475,6 @@ const MIST_NIGHT_STEPS = 8000 // Mistlantern also comes out on nights after this
 let weatherCache = { t: 0, kind: null }
 // 'rain' | 'sun' | 'other', or null when the watch has no forecast
 function weatherKind() {
-  if (TEST_MODE && (st.test.wx === 'rain' || st.test.wx === 'sun' || st.test.wx === 'fog')) return st.test.wx
   const t = now()
   if (weatherCache.t && t - weatherCache.t < 600000) return weatherCache.kind
   let kind = null
@@ -498,7 +490,6 @@ function weatherKind() {
   return kind
 }
 function isWeekendAfternoon() {
-  if (TEST_MODE && st.test.wx === 'weekend') return true
   const d = new Date(now())
   const day = d.getDay()
   return (day === 0 || day === 6) && d.getHours() >= 12 && d.getHours() < 18
@@ -510,7 +501,6 @@ function kcalToday() {
   } catch (e) {
     n = 0
   }
-  if (TEST_MODE && st.test.day === dayKey(now())) n += st.test.kcal || 0
   return n
 }
 function weeklyPai() {
@@ -520,7 +510,6 @@ function weeklyPai() {
   } catch (e) {
     n = 0
   }
-  if (TEST_MODE) n += st.test.pai || 0
   return n
 }
 // ---------- compass ----------
@@ -531,7 +520,6 @@ const NEEDLE_TOLERANCE = 45 // degrees either side that count as facing where Ne
 const NEEDLE_FLEE = 0.5 // chance Needlefin swims away after your turn if you were not facing it
 const DIRS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
 const DIR_WORDS = ['NORTH', 'NORTH-EAST', 'EAST', 'SOUTH-EAST', 'SOUTH', 'SOUTH-WEST', 'WEST', 'NORTH-WEST']
-const TEST_FACES = { N: 0, E: 90, S: 180, W: 270 }
 let compass = null
 const onCompass = () => {}
 function compassOn() {
@@ -556,7 +544,6 @@ function compassOff() {
 }
 // degrees the top of the watch points, or -1 if unknown (no compass / not calibrated)
 function heading() {
-  if (TEST_MODE && st.test.face) return TEST_FACES[st.test.face]
   if (!compass) return -1
   try {
     if (!compass.getStatus()) return -1
@@ -580,7 +567,6 @@ function facing(target, tolerance) {
 
 // ambient light in lux from the watch's light sensor, or -1 if it has none
 function lux() {
-  if (TEST_MODE && st.test.wx === 'dark') return 0
   try {
     const v = new Screen().getLight()
     return typeof v === 'number' ? v : -1
@@ -899,7 +885,7 @@ function buildDen() {
   // tap your lead: a little hop
   addTap(CX - 64, DEN_MON_Y, 128, 120, () => {
     u.hopAt = now()
-    buzz('light')
+    buzz('light', 'other')
   })
   u.name = mkTextS(30, 194, W - 60, 30, 26, WHITE, align.CENTER_H, '')
   const row = (y, label, color) => {
@@ -919,65 +905,7 @@ function buildDen() {
   mkArtButton(bx[2], 378, 'btn_book', () => goto('book', 0))
   u.train = mkArtButton(bx[3], 378, 'btn_train', train, { badge: true })
   u.train.offFn = () => toast(activeMinutes < 0 ? 'No heart rate data' : 'Get your pulse up: active minutes = XP', PINK)
-  mkText(60, 430, W - 120, 18, 13, DIM, align.CENTER_H, 'swipe left for the GUIDE')
-  if (TEST_MODE) {
-    // test buttons on both sides of the creature
-    // the left label is a switch: fake weather / dark / weekend (tap to cycle)
-    const WX = ['', 'rain', 'sun', 'fog', 'dark', 'weekend']
-    u.wx = mkTextS(8, 68, 112, 26, 14, RED, align.CENTER_H, 'TEST: ' + (st.test.wx ? st.test.wx.toUpperCase() : 'REAL'))
-    addTap(8, 64, 112, 32, () => {
-      st.test.wx = WX[(WX.indexOf(st.test.wx || '') + 1) % WX.length]
-      weatherCache.t = 0
-      save()
-      goto('den') // the status line and spawns follow the new setting
-      toast(st.test.wx ? 'Pretending: ' + st.test.wx.toUpperCase() : 'Using the real weather and date', GOLD)
-    })
-    // the right label is a switch too: which way the watch faces (tap to cycle)
-    const FACES = ['', 'N', 'E', 'S', 'W']
-    mkTextS(272, 68, 108, 26, 14, RED, align.CENTER_H, 'FACE: ' + (st.test.face || 'REAL'))
-    addTap(272, 64, 108, 32, () => {
-      st.test.face = FACES[(FACES.indexOf(st.test.face || '') + 1) % FACES.length]
-      save()
-      goto('den')
-      toast(st.test.face ? 'Pretending the watch faces ' + DIR_WORDS[dirIndex(TEST_FACES[st.test.face])] : 'Using the real compass', GOLD)
-    })
-    const test = (x, y, label, fn) => mkArtButton(x, y, 'btn_test', fn, { label, size: 15 })
-    test(18, 96, '+1K STEPS', () => {
-      st.test.steps += 1000
-      updateSteps()
-      updateDen()
-      save()
-      toast('+1,000 test steps (' + fmt(stepsToday) + ' today)', GOLD)
-    })
-    test(280, 96, '+1 HOUR', () => {
-      timeOffset += 3600000
-      st.test.offset = timeOffset
-      passTime(3600000)
-      lastMinute = now()
-      updateSteps()
-      save()
-      const d = new Date(now())
-      // rebuild: day turns to night (and back) on the hour
-      goto('den')
-      toast('Clock now ' + d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0') + ' (day ' + d.getDate() + ')', GOLD)
-    })
-    test(18, 146, 'WORKOUT', () => {
-      // a fake 30-minute workout: active minutes (TRAIN), calories and PAI
-      updateSteps() // makes sure the test counters belong to today
-      st.test.hr = (st.test.hr || 0) + 30
-      st.test.kcal = (st.test.kcal || 0) + 150
-      st.test.pai = (st.test.pai || 0) + 30
-      updateHeart()
-      updateDen()
-      save()
-      toast('Workout: ' + kcalToday() + ' kcal, PAI ' + weeklyPai(), GOLD)
-    })
-    test(280, 146, 'SLEEP 8H', () => {
-      // a good night with plenty of REM: full heal, more JOY, likely a dream visitor
-      applySleep(480, 100)
-      home()
-    })
-  }
+  mkText(60, 430, W - 120, 18, 13, DIM, align.CENTER_H, 'swipe left: GUIDE    swipe up: SETTINGS')
   updateDen()
 }
 
@@ -1160,7 +1088,7 @@ function train() {
   m.joy = clamp(m.joy + 5, 0, 100)
   const msgs = gainXp(m, xp)
   notices.push({ title: 'TRAINING', text: tm + ' active minutes today!\n' + msgs.join('\n'), img: 'mon/' + m.sp + '.png' })
-  buzz('mid')
+  buzz('mid', 'other')
   home()
 }
 
@@ -1326,13 +1254,6 @@ function buildBattle() {
   mkText(40, 86, 168, 20, 14, ELEMENTS[es.el].color, align.LEFT, ELEMENTS[es.el].name)
   u.eHint = mkText(40, 86, 168, 20, 14, DIM, align.RIGHT, 'tap: stats')
   addTap(26, 32, 196, 78, openStats)
-  // test mode: tapping the compass hint changes which way you "face"
-  if (TEST_MODE && B.needle !== null)
-    addTap(120, 84, 102, 26, () => {
-      const FACES = ['', 'N', 'E', 'S', 'W']
-      st.test.face = FACES[(FACES.indexOf(st.test.face || '') + 1) % FACES.length]
-      toast('Test: facing ' + (st.test.face || 'REAL compass'), GOLD)
-    })
   u.eImg = mkImg(ENEMY_POS.x, ENEMY_POS.y, 'mon/' + e.sp + '.png')
   // player
   // one picture per party member, made once: swapping only shows / hides them.
@@ -1680,7 +1601,7 @@ function doMove(side, mvId) {
         B.fx.flash = now()
         B.fx.flashColor = crit > 1 ? 0x4a4214 : 0x4a2a12
       }
-      buzz(other === 'p' || big ? 'strong' : 'light')
+      buzz(other === 'p' || big ? 'strong' : 'light', 'battle')
     })
   })
   if (B.guard[other]) say('The guard softened the blow', null, 650)
@@ -1700,7 +1621,7 @@ function enemyFainted() {
   B.over = true
   say('Wild ' + SPECIES[e.sp].name + ' fainted!', () => {
     B.fx.e.drop = now()
-    buzz('mid')
+    buzz('mid', 'battle')
   })
   const xp = Math.round((10 + e.lv * 7) * (SPECIES[e.sp].rare ? 1.5 : 1))
   const p = activeMon()
@@ -1733,7 +1654,7 @@ function playerFainted() {
   const m = activeMon()
   say(SPECIES[m.sp].name + ' fainted!', () => {
     B.fx.p.drop = now()
-    buzz('strong')
+    buzz('strong', 'battle')
   })
   const next = nextHealthy(B.pIdx)
   if (next >= 0) {
@@ -1829,7 +1750,7 @@ function catchTap() {
   setVisible(u.ring, false)
   setVisible(u.img, false)
   setVisible(u.charm, true)
-  buzz('light')
+  buzz('light', 'catch')
 }
 
 function tickCatch(t) {
@@ -1840,10 +1761,10 @@ function tickCatch(t) {
     if (step !== CATCH.step) {
       CATCH.step = step
       u.count.forEach((im, i) => setVisible(im, i === step))
-      if (step < 3) buzz('light')
+      if (step < 3) buzz('light', 'catch')
     }
     if (step >= 3) {
-      buzz('mid')
+      buzz('mid', 'catch')
       CATCH.phase = 'aim'
       CATCH.t0 = t
     }
@@ -1865,7 +1786,7 @@ function tickCatch(t) {
     if (CATCH.wob <= 3) {
       setText(u.info, '.'.repeat(CATCH.wob))
       setRect(u.target, { color: CATCH.wob % 2 ? WHITE : GOLD })
-      buzz('light')
+      buzz('light', 'catch')
       CATCH.next = t + 650
       if (!CATCH.ok && CATCH.wob >= 1 + Math.floor(Math.random() * 3)) CATCH.wob = 3
       return
@@ -1875,7 +1796,7 @@ function tickCatch(t) {
     const e = B.enemy
     const name = SPECIES[e.sp].name
     if (CATCH.ok) {
-      buzz('strong')
+      buzz('strong', 'catch')
       showRating('gotcha')
       setText(u.info, name + ' was caught!')
     } else {
@@ -1956,7 +1877,7 @@ function tickEvolve(t) {
     setVisible(u.a, !showB)
     setVisible(u.b, showB)
     EVO.next = t + EVO_FLIPS[EVO.flips - 1]
-    if (EVO.flips % 3 === 0) buzz('light')
+    if (EVO.flips % 3 === 0) buzz('light', 'other')
     return
   }
   EVO.done = true
@@ -1973,7 +1894,7 @@ function tickEvolve(t) {
   setText(u.text, fromName + ' evolved into ' + SPECIES[m.sp].name + '!')
   setTextColor(u.text, GOLD)
   setArtButton(u.ok, true)
-  buzz('strong')
+  buzz('strong', 'other')
   save()
 }
 
@@ -2120,11 +2041,11 @@ function feed(b) {
     st.favKnown[m.sp] = true
     setText(u.hint, first ? 'Its FAVOURITE! Lots of JOY!' : 'Its favourite! Lots of JOY!')
     setTextColor(u.hint, PINK)
-    buzz('strong')
+    buzz('strong', 'other')
   } else {
     setText(u.hint, pick(['Yum!', 'Munch munch...', 'Tasty!', 'Thanks!']))
     setTextColor(u.hint, WHITE)
-    buzz('light')
+    buzz('light', 'other')
   }
   queueEvolution(m, null)
   if (st.pendingEvo.indexOf(m.id) >= 0) toast(s.name + ' is ready to evolve!', GOLD)
@@ -2232,6 +2153,73 @@ function buildBookPage(id, page) {
   addTap(0, 0, W, H, () => goto('book', page))
 }
 
+// ---------- settings (swipe up on the den) ----------
+const SETTING_ROWS = [
+  { key: 'vibBattle', label: 'Battle vibration', sub: 'hits and faints', cat: 'battle' },
+  { key: 'vibCatch', label: 'Catch vibration', sub: 'countdown and wobbles', cat: 'catch' },
+  { key: 'vibOther', label: 'Other vibration', sub: 'taps, feeding, evolving', cat: 'other' }
+]
+
+function buildSettings() {
+  const u = screen.ui
+  mkArtC(2, 't_settings')
+  SETTING_ROWS.forEach((r, i) => {
+    const y = 52 + i * 76
+    mkArt(28, y, 'pnl_row')
+    mkTextS(42, y + 8, 200, 30, 20, WHITE, align.LEFT, r.label)
+    mkText(42, y + 38, 200, 24, 15, LILAC, align.LEFT, r.sub)
+    const on = st.settings[r.key] !== false
+    mkArtButton(258, y + 14, on ? 'tgl_on' : 'tgl_off', () => {
+      st.settings[r.key] = !on
+      save()
+      goto('settings')
+      // a little buzz so you feel it is back on
+      if (!on) buzz('mid', r.cat)
+    })
+  })
+  // full reset, like Tap Quest: the first tap asks SURE?, a second tap within
+  // RESET_CONFIRM_MS erases the whole game (your vibration choices are kept)
+  const y = 52 + SETTING_ROWS.length * 76
+  mkArt(28, y, 'pnl_row')
+  u.resetLabel = mkTextS(42, y + 8, 210, 30, 20, RED, align.LEFT, 'Reset game')
+  u.resetSub = mkText(42, y + 38, 210, 24, 15, LILAC, align.LEFT, 'erases every Wristling')
+  u.confirmUntil = 0
+  u.reset = mkArtButton(258, y + 14, 'btn_reset', () => {
+    const t = now()
+    if (!u.confirmUntil || t > u.confirmUntil) {
+      u.confirmUntil = t + RESET_CONFIRM_MS
+      setArtButton(u.reset, true, 'btn_sure')
+      setText(u.resetLabel, 'TAP AGAIN!')
+      setText(u.resetSub, 'to erase everything')
+      return
+    }
+    resetGame()
+  })
+  mkArtButton(95, 370, 'btn_back', () => home())
+}
+
+// the SURE? state runs out after a few seconds (called every tick on this screen)
+function tickSettings(t) {
+  const u = screen.ui
+  if (u.confirmUntil && t > u.confirmUntil) {
+    u.confirmUntil = 0
+    setArtButton(u.reset, true, 'btn_reset')
+    setText(u.resetLabel, 'Reset game')
+    setText(u.resetSub, 'erases every Wristling')
+  }
+}
+
+// A full wipe: every Wristling, item, track and the book. Only settings stay.
+function resetGame() {
+  const keep = st.settings
+  st = freshState()
+  st.settings = keep
+  notices.length = 0
+  save()
+  goto('starter')
+  toast('NEW GAME', WHITE)
+}
+
 // ---------- guide (swipe left on the den) ----------
 // KEEP THIS UP TO DATE: every rule shown here is built from the constants and
 // data the game itself uses, so tuning a number updates the guide. When you add
@@ -2275,7 +2263,7 @@ function guidePages() {
     {
       title: 'WELCOME',
       text:
-        'Wristlings live on your wrist.\n\nWalk to earn TRACKS. Spend a track on EXPLORE to meet a wild Wristling, then battle it, catch it, feed it and help it evolve.\n\nSwipe left / right (or tap the arrows) to turn pages.'
+        'Wristlings live on your wrist.\n\nWalk to earn TRACKS. Spend a track on EXPLORE to meet a wild Wristling, then battle it, catch it, feed it and help it evolve.\n\nSwipe left / right (or tap the arrows) to turn pages.\n\nSwipe UP on the den for SETTINGS (vibrations, reset).'
     },
     {
       title: 'WALKING',
@@ -2370,15 +2358,6 @@ function guidePages() {
         '- In the BOOK, tap any creature to see where to find it.'
     }
   ]
-  if (TEST_MODE)
-    pages.push({
-      title: 'TEST MODE',
-      text:
-        'Den buttons that fake watch data:\n\n' +
-        '+1K STEPS, +1 HOUR (clock)\nWORKOUT: 30 min, 150 kcal, 30 PAI\nSLEEP 8H: a night with lots of REM\n' +
-        'TEST: rain, sun, fog, dark, weekend\nFACE: where the watch points\n\n' +
-        'Set TEST_MODE off before release.'
-    })
   return pages
 }
 
@@ -2416,7 +2395,8 @@ const SCREENS = {
   detail: buildDetail,
   feed: buildFeed,
   book: buildBook,
-  guide: buildGuide
+  guide: buildGuide,
+  settings: buildSettings
 }
 
 // ---------- input ----------
@@ -2483,6 +2463,14 @@ function onSwipe(ev) {
     goto('guide', 0)
     return true
   }
+  if (ev === GESTURE_UP && screen.name === 'den') {
+    goto('settings')
+    return true
+  }
+  if (screen.name === 'settings' && (ev === GESTURE_RIGHT || ev === GESTURE_DOWN)) {
+    home()
+    return true
+  }
   if (ev !== GESTURE_RIGHT) return false
   const n = screen.name
   if (n === 'team' || n === 'book') {
@@ -2519,6 +2507,7 @@ function tick() {
     if (n === 'battle') tickBattle(t)
     else if (n === 'catch') tickCatch(t)
     else if (n === 'evolve') tickEvolve(t)
+    else if (n === 'settings') tickSettings(t)
     // once a minute: hunger, healing, free tracks
     if (t - lastMinute >= 60000) {
       passTime(t - lastMinute, n === 'battle' || n === 'catch') // no healing mid-fight
@@ -2570,7 +2559,6 @@ Page({
       weatherCache = { t: 0, kind: null }
       storage = new LocalStorage()
       st = load()
-      timeOffset = TEST_MODE ? st.test.offset || 0 : 0
       const t = now()
       if (st.last) passTime(t - st.last)
       lastMinute = t

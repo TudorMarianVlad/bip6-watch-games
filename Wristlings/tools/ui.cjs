@@ -551,7 +551,6 @@ function art() {
   add('btn_book', button(76, 50, C.purple, 'BOOK', den))
   add('btn_train', button(76, 50, C.red, 'TRAIN', den))
   add('btn_train_off', button(76, 50, C.off, 'TRAIN', off(den)))
-  add('btn_test', button(92, 44, C.neutral, ''))
   // battle
   for (const el in ELEMENT_BTN) add('btn_move_' + el, button(110, 58, ELEMENT_BTN[el], ''))
   add('btn_move_off', button(110, 58, C.off, ''))
@@ -575,6 +574,12 @@ function art() {
   add('btn_bench', button(104, 48, C.blue, 'BENCH', team))
   add('btn_join', button(104, 48, C.blue, 'JOIN', team))
   add('btn_feed_s', button(104, 48, C.orange, 'FEED', team))
+  // settings switches
+  add('tgl_on', button(92, 44, C.green, 'ON'))
+  add('tgl_off', button(92, 44, C.off, 'OFF', { textColor: 0xb0a8d0 }))
+  // full reset: RESET, then SURE? for a few seconds
+  add('btn_reset', button(92, 44, C.red, 'RESET'))
+  add('btn_sure', button(92, 44, C.gold, 'SURE?'))
   // panels
   add('pnl_info', panel(196, 78))
   add('pnl_msg', panel(354, 42, { r: 14, alpha: 0.96 }))
@@ -601,6 +606,7 @@ function art() {
   add('t_catch', title('CATCH!', 4.5, gold))
   add('t_evolution', title('EVOLUTION', 3.75, gold))
   add('t_stats', title('STATS', 3.5, gold))
+  add('t_settings', title('SETTINGS', 4, white))
   add('t_perfect', title('PERFECT!', 4.5, gold))
   add('t_good', title('GOOD', 4.5, { top: 0xffffff, bottom: 0x8af07a, side: 0x2a7a3a }))
   add('t_miss', title('MISS', 4.5, { top: 0xffffff, bottom: 0xff8a8a, side: 0x8a2a3a }))
