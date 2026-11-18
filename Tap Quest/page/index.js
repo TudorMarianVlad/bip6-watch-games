@@ -1940,98 +1940,74 @@ function dotX(i) {
 }
 
 function openMenu(kind) {
-  const wasOpen = menu.open
   menu.open = true
   menu.kind = kind || 'main'
   menu.cat = menuTabs()[0] // always start fresh on the first tab, page 1
   menu.page = 0
-  // from the battle: slide in the way you swiped (left, or up for the info menu);
-  // the swap button flips between the menus vertically
-  const dir = wasOpen ? (menu.kind === 'info' ? 'up' : 'down') : menu.kind === 'info' ? 'up' : 'left'
-  transition(dir, bandColor(), 'full', OPEN_MS)
+  transition()
 }
 
 function closeMenu() {
-  const wasOpen = menu.open
-  const color = bandColor()
+  finishAnim()
   menu.open = false
   menu.kind = 'main'
   menu.cat = 0 // the next time it opens on HEROES, page 1
   menu.page = 0
   st.monsterDirty = true
-  if (wasOpen) transition('right', color, 'full', OPEN_MS)
 }
 
 function setCat(c) {
-  const oldKind = menu.kind
-  const oldPos = menuTabs().indexOf(menu.cat)
   const same = c === menu.cat
   menu.kind = menuOf(CATS[c])
   menu.cat = c
   menu.page = 0
   if (same || !menu.open) return
-  const dir = menu.kind !== oldKind ? (menu.kind === 'info' ? 'up' : 'down') : menuTabs().indexOf(c) > oldPos ? 'left' : 'right'
-  transition(dir, bandColor(), 'full', TAB_MS)
+  transition()
 }
 
-// ---------- transitions ----------
-// The game state changes at once and the new view is drawn right away. A thin bar
-// in the tab's colour then sweeps across in the swipe direction. (A sheet covering
-// the screen looked like a flicker on a slow screen: one or two frames of a big
-// colour block. A thin bar never hides anything, so even a few frames read as
-// movement.) The bar has its own fast timer, and the heavy screen redraw waits
-// while it moves.
-const OPEN_MS = 260
-const TAB_MS = 190
-const PAGE_MS = 170
-const ANIM_STEP_MS = 16
-const SWEEP_W = 6 // thickness of the bar
-let anim = null
+// ---------- transitions: a row cascade ----------
+// The header, dots and buttons change at once; the active dot pops a little bigger,
+// and the 3 rows appear one after another (top to bottom), REVEAL_STEP_MS apart.
+// Why not something that slides: the watch repaints everything under a moving
+// widget, so a sweep across the screen meant a full repaint every frame (it
+// flickered on the real Bip 6). This needs only ~4 small redraws in total.
+// The heavy screen redraw waits while the rows come in.
+const REVEAL_STEP_MS = 70
+const ANIM_STEP_MS = 35
+const ANIM_TOTAL_MS = REVEAL_STEP_MS * ROWS_PER_PAGE
+let anim = null // { start, shown } while rows are coming in
 let animTimer = null
 
-// the bar uses the tab's full colour (brighter than the info menu's dark header)
-function bandColor() {
-  return CAT_COLORS[menu.cat] || CAT_COLORS[0]
+// how many rows of the page are shown right now
+function rowsShown() {
+  return anim ? anim.shown : ROWS_PER_PAGE
 }
 
-// region 'full' is the whole screen, 'rows' only the list (pages flip under the header)
-function transition(dir, color, region, ms) {
+function transition() {
   finishAnim()
-  if (!ui.sweep || !st || !st.anim) return
-  const r = region === 'rows' ? { x: 0, y: L.rows[0].y - 6, w: W, h: L.up.y - L.rows[0].y } : { x: 0, y: 0, w: W, h: H }
-  anim = { dir, r, ms, start: now(), color }
-  updateScreen() // the new view, right away
-  drawSweep(0)
+  if (!st || !st.anim || !menu.open) return
+  anim = { start: now(), shown: 0 }
+  updateScreen() // the new header right away; rows hidden
   try {
     animTimer = setInterval(stepAnim, ANIM_STEP_MS)
   } catch (e) {
     finishAnim()
+    updateScreen()
   }
 }
 
 function stepAnim() {
   try {
     if (!anim) return finishAnim()
-    const p = (now() - anim.start) / anim.ms
-    if (p >= 1) finishAnim()
-    else drawSweep(p)
+    const n = Math.min(ROWS_PER_PAGE, 1 + Math.floor((now() - anim.start) / REVEAL_STEP_MS))
+    if (n !== anim.shown) {
+      anim.shown = n
+      if (n >= ROWS_PER_PAGE) finishAnim()
+      if (menu.open) updateMenu()
+    }
   } catch (e) {
     finishAnim()
   }
-}
-
-// p = 0..1. 'left': the bar runs from the right edge to the left (the new view
-// "comes in" from the right); 'right' the other way; 'up' bottom to top; 'down' top to bottom.
-function drawSweep(p) {
-  const e = 1 - Math.pow(1 - p, 3) // ease out: quick start, soft landing
-  const r = anim.r
-  let b
-  if (anim.dir === 'left') b = { x: r.x + (r.w - SWEEP_W) * (1 - e), y: r.y, w: SWEEP_W, h: r.h }
-  else if (anim.dir === 'right') b = { x: r.x + (r.w - SWEEP_W) * e, y: r.y, w: SWEEP_W, h: r.h }
-  else if (anim.dir === 'up') b = { x: r.x, y: r.y + (r.h - SWEEP_W) * (1 - e), w: r.w, h: SWEEP_W }
-  else b = { x: r.x, y: r.y + (r.h - SWEEP_W) * e, w: r.w, h: SWEEP_W }
-  setBox(ui.sweep, { x: Math.round(b.x), y: Math.round(b.y), w: b.w, h: b.h }, anim.color, 0)
-  setVisible(ui.sweep, true)
 }
 
 function finishAnim() {
@@ -2043,10 +2019,7 @@ function finishAnim() {
     }
     animTimer = null
   }
-  if (anim) {
-    anim = null
-    setVisible(ui.sweep, false)
-  }
+  anim = null
 }
 
 // move d tabs left/right within the open menu (wraps around)
@@ -2063,8 +2036,7 @@ function pageCount() {
 function setPage(p) {
   const old = menu.page
   menu.page = Math.max(0, Math.min(pageCount() - 1, p))
-  // the list flips under the header: next page comes up from below
-  if (menu.page !== old && menu.open) transition(menu.page > old ? 'up' : 'down', bandColor(), 'rows', PAGE_MS)
+  if (menu.page !== old && menu.open) transition()
 }
 
 function countdown(ms) {
@@ -2451,7 +2423,7 @@ function menuRows() {
       },
       {
         title: 'Animations',
-        detail: 'menu slides and wipes',
+        detail: 'menu rows cascade in',
         right: st.anim ? 'ON' : 'OFF',
         on: st.anim,
         icon: 0x9b6cff,
@@ -3173,10 +3145,6 @@ function buildScreen() {
   // everything. It sits at 0,0, so tap coordinates are screen coordinates.
   // (It used to be a full-screen canvas, but a canvas needs a big block of pixel
   // memory, and with this many widgets it came back broken and ignored taps.)
-  // transition sweep bar (above everything except the touch layer), hidden until a menu change
-  ui.sweep = mkRect(0, 0, SWEEP_W, H, WHITE, 0)
-  setVisible(ui.sweep, false)
-
   ui.touch = createWidget(widget.TEXT, { x: 0, y: 0, w: W, h: H, text: '', text_size: 10, color: BG })
   ui.touch.addEventListener(event.CLICK_DOWN, (e) => handleTouch('T', e))
   // finger lifted: completes a menu button press (if the watch reports it)
@@ -3374,7 +3342,8 @@ function updateMenu() {
   ui.dots.forEach((d, i) => {
     const c = tabs[i]
     setVisible(d, c !== undefined)
-    if (c !== undefined) setCircle(d, dotX(i), L.dotY - 6, c === menu.cat ? 6 : 4, c === menu.cat ? WHITE : darken(CAT_COLORS[c], info ? 0.8 : 0.55))
+    // the active dot pops bigger while the rows come in
+    if (c !== undefined) setCircle(d, dotX(i), L.dotY - 6, c === menu.cat ? (anim && anim.shown < 2 ? 8 : 6) : 4, c === menu.cat ? WHITE : darken(CAT_COLORS[c], info ? 0.8 : 0.55))
   })
   const pages = pageCount()
   if (menu.page >= pages) menu.page = pages - 1
@@ -3383,7 +3352,7 @@ function updateMenu() {
   const rows = menuRows()
   ui.rows.forEach((w, i) => {
     const row = rows[menu.page * ROWS_PER_PAGE + i]
-    const show = !!row
+    const show = !!row && i < rowsShown()
     const guide = show && !!row.lines
     ;[w.bg, w.edge, w.icon, w.letter, w.title].forEach((o) => setVisible(o, show))
     setVisible(w.detail, show && !guide)
@@ -3391,7 +3360,7 @@ function updateMenu() {
     setVisible(w.line2, guide)
     setVisible(w.pill, show && !guide && !!row.right)
     setVisible(w.right, show && !guide && !!row.right)
-    if (!row) return
+    if (!show) return
     const box = L.rows[i]
     setBox(w.edge, box, row.on ? GOLD : ROW, 14, true)
     setCircle(w.icon, box.x + 32, box.y + box.h / 2, 19, row.icon || catColor)
@@ -3621,9 +3590,9 @@ function tick() {
       st.monsterDirty = true
     }
     if (!menu.open && !st.paused) animateScene(Math.min(dt, 0.2))
-    // while a transition bar sweeps, the heavy redraw waits (the new view was
-    // already drawn when it started); a stuck bar is cleared here as a backup
-    if (anim && now() - anim.start > anim.ms + 150) finishAnim()
+    // while the menu rows come in, the heavy redraw waits (the header was already
+    // drawn); if the reveal timer ever stalls, this shows everything as a backup
+    if (anim && now() - anim.start > ANIM_TOTAL_MS + 150) finishAnim()
     checkPress()
     if (!anim) updateScreen()
 
