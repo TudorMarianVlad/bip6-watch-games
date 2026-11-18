@@ -161,7 +161,9 @@ const VIBRATOR_SCENE_SHORT_MIDDLE = __stub("VIBRATOR_SCENE_SHORT_MIDDLE")
 //
 // Controls (play): swipe up/down = step forward/back, left/right = turn. Or tap the view: left/right
 // third = turn, upper middle = forward, lower middle = back. Tap the potion (bottom left) to drink.
-// Tap the top bars to pause.
+// Tap the II button (or anywhere on the top bars) to pause: resume, settings, how to play, save & quit.
+// Settings: vibration on/off and strength, separate switches for combat / heartbeat / pickup buzzes,
+// and render detail. Saved in meta.vib and meta.col.
 //
 // Rendering: a raycaster on one canvas. Walls are drawn as vertical bars, neighbours with the same
 // height and shade merged into one rectangle; sprites (monsters, items) are drawn column by column
@@ -245,7 +247,7 @@ const BOONS = [
 ]
 
 const HOWTO = [
-  ['MOVING', 'Swipe up to step forward, down to step back, left or right to turn. Or tap the view: sides turn, upper middle steps forward, lower middle steps back.\n\nFind the gold key, open the wooden door and step into the blue portal to go deeper.'],
+  ['MOVING', 'Swipe up to step forward, down to step back, left or right to turn. Or tap the view: sides turn, upper middle steps forward, lower middle steps back.\n\nFind the gold key, open the wooden door and step into the blue portal to go deeper.\n\nTap II at the top to pause. Vibrations can be tuned in Settings.'],
   ['FIGHTING', 'Walk into a monster to attack. A gold ring shrinks: tap as it meets the inner ring for a critical hit.\n\nSkeletons and brutes glow red before a heavy blow. Back away, or tap the red ring at the right moment to block it.\n\nMonsters only move when you act. Turning is free.'],
   ['SURVIVING', 'Your torch burns every turn. At zero you are nearly blind and monsters move twice. Oil refills it, and so does walking in real life: 4 steps = 1 fuel.\n\nSpikes rise every other turn. Cracked walls hide treasure. Levers open iron gates. A heartbeat buzz: something is close behind you.']
 ]
@@ -266,7 +268,9 @@ let screen = 'menu' // menu | howto | play | boon | dead | pause
 let phase = 'idle' // idle | anim | ring  (while screen === 'play')
 let howPage = 0
 
-let meta = { best: 0, bestGold: 0, daily: { day: 0, best: 0 }, lastSteps: -1, stepBank: 0, col: 0 }
+const VIB_DEFAULT = { on: true, power: 1, combat: true, beat: true, events: true } // power: 0 soft, 1 normal, 2 strong
+const POWER_NAMES = ['SOFT', 'NORMAL', 'STRONG']
+let meta = { best: 0, bestGold: 0, daily: { day: 0, best: 0 }, lastSteps: -1, stepBank: 0, col: 0, vib: Object.assign({}, VIB_DEFAULT) }
 let run = null // the current run (null when none)
 let map = []
 let seen = []
@@ -291,6 +295,10 @@ let fogC = 0.18
 let lightBucket = -1
 let zbuf = []
 let overlayActions = []
+let overlayBack = null // swipe right on a menu screen
+let overlayOutside = null // tap outside a panel
+let overlayPanel = null
+let lastFlicker = 0
 let boonChoices = []
 let boonFromChest = false
 
@@ -367,10 +375,16 @@ function shade(c, level) {
   return v
 }
 
-function buzz(kind) {
+// kind: light | mid | strong.  cat: combat (hits, crits, blocks, damage, death) | beat (heartbeat warning)
+// | event (everything else: pickups, doors, levers, bumps). Settings can mute each category and shift the strength.
+function buzz(kind, cat) {
+  const v = meta.vib
+  if (!v.on) return
+  if (cat === 'combat' ? !v.combat : cat === 'beat' ? !v.beat : cat === 'test' ? false : !v.events) return
+  const lvl = clamp((kind === 'strong' ? 2 : kind === 'mid' ? 1 : 0) + v.power - 1, 0, 2)
   try {
     if (!vibrator) vibrator = new Vibrator()
-    const mode = kind === 'strong' ? VIBRATOR_SCENE_SHORT_STRONG : kind === 'mid' ? VIBRATOR_SCENE_SHORT_MIDDLE : VIBRATOR_SCENE_SHORT_LIGHT
+    const mode = lvl === 2 ? VIBRATOR_SCENE_SHORT_STRONG : lvl === 1 ? VIBRATOR_SCENE_SHORT_MIDDLE : VIBRATOR_SCENE_SHORT_LIGHT
     vibrator.stop()
     vibrator.start({ mode })
   } catch (e) {
@@ -379,9 +393,9 @@ function buzz(kind) {
 }
 
 function heartbeat() {
-  buzz('light')
+  buzz('light', 'beat')
   try {
-    setTimeout(() => buzz('light'), 230)
+    setTimeout(() => buzz('light', 'beat'), 230)
   } catch (e) {
     // one beat is enough
   }
@@ -830,6 +844,7 @@ function loadMeta() {
   } catch (e) {
     console.log('DEPTH CRAWL bad meta: ' + e)
   }
+  meta.vib = Object.assign({}, VIB_DEFAULT, meta.vib || {}) // older saves have no vibration settings
   colW = COL_WIDTHS[meta.col % COL_WIDTHS.length]
 }
 
@@ -1454,7 +1469,7 @@ function resolveRing(tapped) {
     if (perfect) {
       dmg *= 2
       floater('CRIT ' + dmg, GOLD)
-      buzz('mid')
+      buzz('mid', 'combat')
       m.wind = 0 // a critical hit interrupts a wind-up
     } else floater('-' + dmg, WHITE)
     m.hp -= dmg
@@ -1467,7 +1482,7 @@ function resolveRing(tapped) {
     const m = r.m
     if (perfect) {
       floater('BLOCKED!', CYAN)
-      buzz('light')
+      buzz('light', 'combat')
     } else hurt(MONS[m.t].dmg + Math.floor((run.depth - 1) / 3))
     m.wind = 0
     updateHud()
@@ -1481,7 +1496,7 @@ function hurt(d) {
   run.hp -= d
   floater('-' + d, RED)
   flashRed()
-  buzz('strong')
+  buzz('strong', 'combat')
   if (run.hp <= 0) {
     run.hp = 0
     run.dead = true
@@ -1904,7 +1919,7 @@ function die() {
   }
   saveMeta()
   saveRun() // clears the saved run
-  buzz('strong')
+  buzz('strong', 'combat')
   const wasDaily = run.daily
   showOverlay('dead', {
     title: 'YOU DIED',
@@ -1922,16 +1937,42 @@ function die() {
 }
 
 // ---------- overlays (menu, how to play, boons, death, pause) ----------
+// o: title, color, titleY, sub, subColor, subBox, buttons[{label, desc, value, on, dim, hi, fn}], btnY, btnH, gap, btnW,
+//    foot, footFn, footY, panel ([x,y,w,h]: draw a framed panel over the frozen dungeon instead of a black screen),
+//    deco (torches beside the title), back (swipe right), outsideFn (tap outside the panel)
+// A button with a `value` is a settings row: label on the left, a value pill on the right.
 function showOverlay(name, o) {
   screen = name
   phase = 'idle'
   hideRings()
   setVisible(ui.hint, false)
   const ov = ui.ov
-  setVisible(ov.cover, true)
+  overlayBack = o.back || null
+  overlayOutside = o.outsideFn || null
+  overlayPanel = o.panel || null
+  setVisible(ov.cover, !o.panel)
+  ;[ov.panelEdge, ov.panelFill, ov.panelLine].forEach((x) => setVisible(x, !!o.panel))
+  if (o.panel) {
+    const p = o.panel
+    setMore(ov.panelEdge, { x: p[0], y: p[1], w: p[2], h: p[3], radius: 22, color: EDGE })
+    setMore(ov.panelFill, { x: p[0] + 3, y: p[1] + 3, w: p[2] - 6, h: p[3] - 6, radius: 19, color: 0x0e0c09 })
+    setMore(ov.panelLine, { x: p[0] + 8, y: p[1] + 8, w: p[2] - 16, h: p[3] - 16, radius: 15, line_width: 1, color: 0x3a3022 })
+  }
+  const ty = o.titleY || 40
+  setMore(ov.title, { x: 50, y: ty, w: W - 100, h: 40 })
   setText(ov.title, o.title)
   setColor(ov.title, o.color || GOLD)
   setVisible(ov.title, true)
+  // decoration: a wall torch on each side of the title and a carved line under it
+  ui.decoOn = !!o.deco
+  ov.deco.forEach((x) => setVisible(x, !!o.deco))
+  if (o.deco) {
+    const dx = o.decoDX || 118
+    placeTorch(ov.torchL, Math.round(W / 2 - dx), ty + 6)
+    placeTorch(ov.torchR, Math.round(W / 2 + dx), ty + 6)
+    setMore(ov.rule, { x: Math.round(W / 2 - 90), y: ty + 42, w: 180, h: 2, radius: 1, color: EDGE })
+    setMore(ov.gem, { x: Math.round(W / 2 - 4), y: ty + 39, w: 8, h: 8, radius: 2, color: GOLD })
+  }
   setMore(ov.sub, { x: o.subBox[0], y: o.subBox[1], w: o.subBox[2], h: o.subBox[3] })
   setText(ov.sub, o.sub || '')
   setColor(ov.sub, o.subColor || WHITE)
@@ -1940,15 +1981,34 @@ function showOverlay(name, o) {
   ov.btns.forEach((b, i) => {
     const d = o.buttons[i]
     const on = !!d
-    ;[b.edge, b.fill, b.label, b.desc].forEach((x) => setVisible(x, on))
+    ;[b.edge, b.fill, b.label, b.desc, b.rlabel, b.pillEdge, b.pill, b.pillText].forEach((x) => setVisible(x, on))
     if (!on) return
-    const bw = o.btnW || 290
+    const bw = d.w || o.btnW || 290
     const x = Math.round(W / 2 - bw / 2)
-    const y = o.btnY + i * o.gap
-    const h = o.btnH
+    const y = d.y !== undefined ? d.y : o.btnY + i * o.gap
+    const h = d.h || o.btnH
     setMore(b.edge, { x, y, w: bw, h, radius: 14, color: d.hi ? GOLD : EDGE })
     setMore(b.fill, { x: x + 2, y: y + 2, w: bw - 4, h: h - 4, radius: 12, color: d.hi ? PANEL_ON : PANEL })
-    if (d.desc) {
+    const row = d.value !== undefined
+    setVisible(b.label, !row)
+    setVisible(b.rlabel, row)
+    ;[b.pillEdge, b.pill, b.pillText].forEach((x) => setVisible(x, row))
+    if (row) {
+      const pw = 96
+      const ph = h - 12
+      const px = x + bw - pw - 7
+      const py = y + 6
+      setMore(b.rlabel, { x: x + 16, y, w: bw - pw - 28, h })
+      setText(b.rlabel, d.label)
+      setColor(b.rlabel, d.dim ? 0x5a5246 : WHITE)
+      const lit = d.on && !d.dim
+      setMore(b.pillEdge, { x: px, y: py, w: pw, h: ph, radius: ph / 2, color: lit ? GOLD : 0x3a3022 })
+      setMore(b.pill, { x: px + 2, y: py + 2, w: pw - 4, h: ph - 4, radius: ph / 2 - 2, color: lit ? 0x4a3a12 : 0x15120e })
+      setMore(b.pillText, { x: px, y: py, w: pw, h: ph })
+      setText(b.pillText, d.value)
+      setColor(b.pillText, lit ? GOLD : d.dim ? 0x5a5246 : DIM)
+      setVisible(b.desc, false)
+    } else if (d.desc) {
       setMore(b.label, { x: x + 8, y: y + 6, w: bw - 16, h: 26 })
       setMore(b.desc, { x: x + 8, y: y + 32, w: bw - 16, h: 24 })
       setText(b.desc, d.desc)
@@ -1961,16 +2021,43 @@ function showOverlay(name, o) {
     setColor(b.label, d.hi ? GOLD : WHITE)
     overlayActions.push({ box: [x, y, bw, h], fn: d.fn })
   })
+  const fy = o.footY || ui.footY
+  setMore(ov.foot, { x: Math.round(W / 2 - 130), y: fy - 6, w: 260, h: 30 })
   setText(ov.foot, o.foot || '')
   setVisible(ov.foot, !!o.foot)
-  if (o.foot && o.footFn) overlayActions.push({ box: [W / 2 - 130, ui.footY - 6, 260, 40], fn: o.footFn })
+  if (o.foot && o.footFn) overlayActions.push({ box: [W / 2 - 130, fy - 6, 260, 40], fn: o.footFn })
+}
+
+// a wall torch: iron sconce, orange flame, bright core (the core flickers in tick())
+function placeTorch(t, cx, y) {
+  setMore(t.cup, { x: cx - 7, y: y + 18, w: 14, h: 6, radius: 2, color: 0x5e646c })
+  setMore(t.stem, { x: cx - 2, y: y + 22, w: 4, h: 12, radius: 1, color: 0x5e646c })
+  setMore(t.flame, { x: cx - 7, y, w: 14, h: 20, radius: 7, color: ORANGE })
+  setMore(t.core, { x: cx - 3, y: y + 8, w: 6, h: 10, radius: 3, color: GOLD })
+  t.cx = cx
+  t.y = y
+}
+
+function flickerTorches() {
+  const ov = ui.ov
+  ;[ov.torchL, ov.torchR].forEach((t) => {
+    const k = Math.random()
+    const fh = 18 + Math.round(k * 4)
+    setMore(t.flame, { x: t.cx - 7, y: t.y + 20 - fh, w: 14, h: fh, radius: 7, color: k > 0.7 ? 0xffb85a : ORANGE })
+    setMore(t.core, { x: t.cx - 3, y: t.y + 10 - Math.round(k * 2), w: 6, h: 9 + Math.round(k * 2), radius: 3, color: k > 0.5 ? 0xfff0a0 : GOLD })
+  })
 }
 
 function hideOverlay() {
   const ov = ui.ov
-  ;[ov.cover, ov.title, ov.sub, ov.foot].forEach((x) => setVisible(x, false))
-  ov.btns.forEach((b) => [b.edge, b.fill, b.label, b.desc].forEach((x) => setVisible(x, false)))
+  ;[ov.cover, ov.title, ov.sub, ov.foot, ov.panelEdge, ov.panelFill, ov.panelLine].forEach((x) => setVisible(x, false))
+  ov.deco.forEach((x) => setVisible(x, false))
+  ov.btns.forEach((b) => [b.edge, b.fill, b.label, b.desc, b.rlabel, b.pillEdge, b.pill, b.pillText].forEach((x) => setVisible(x, false)))
   overlayActions = []
+  overlayBack = null
+  overlayOutside = null
+  overlayPanel = null
+  ui.decoOn = false
 }
 
 function setScreen(name) {
@@ -1992,31 +2079,25 @@ function showMenu() {
   if (hasSavedRun()) btns.push({ label: 'CONTINUE', fn: () => loadRun() || showMenu(), hi: true })
   btns.push({ label: 'NEW RUN', fn: () => newRun(false), hi: btns.length === 0 })
   btns.push({ label: 'DAILY DUNGEON', fn: () => newRun(true) })
-  btns.push({ label: 'HOW TO PLAY', fn: () => showHowto(0) })
+  btns.push({ label: 'HOW TO PLAY', fn: () => showHowto(0, showMenu) })
+  btns.push({ label: 'SETTINGS', fn: () => showSettings(showMenu) })
+  const five = btns.length === 5
   showOverlay('menu', {
     title: 'DEPTH CRAWL',
     color: GOLD,
+    deco: true,
+    decoDX: 128,
     sub: 'Best: floor ' + meta.best + (dailyBest ? '   ·   Today: floor ' + dailyBest : ''),
     subColor: DIM,
-    subBox: [40, 84, W - 80, 28],
+    subBox: [40, 92, W - 80, 26],
     buttons: btns,
-    btnY: 128,
-    btnH: 50,
-    gap: 60,
-    foot: 'Detail ' + colW + 'px' + (perf.frames ? '  ·  ' + Math.round(perf.avg) + ' ms' : '') + '  (tap)',
-    footFn: cycleDetail
+    btnY: five ? 126 : 136,
+    btnH: five ? 46 : 50,
+    gap: five ? 54 : 62
   })
 }
 
-function cycleDetail() {
-  meta.col = (meta.col + 1) % COL_WIDTHS.length
-  colW = COL_WIDTHS[meta.col]
-  perf.frames = 0
-  saveMeta()
-  showMenu()
-}
-
-function showHowto(page) {
+function showHowto(page, back) {
   howPage = page
   const last = page === HOWTO.length - 1
   showOverlay('howto', {
@@ -2024,28 +2105,84 @@ function showHowto(page) {
     color: GOLD,
     sub: HOWTO[page][1],
     subBox: [44, 78, W - 88, 280],
-    buttons: [{ label: last ? 'BACK' : 'NEXT  ' + (page + 1) + '/' + HOWTO.length, fn: () => (last ? showMenu() : showHowto(page + 1)), hi: true }],
+    buttons: [{ label: last ? 'BACK' : 'NEXT  ' + (page + 1) + '/' + HOWTO.length, fn: () => (last ? back() : showHowto(page + 1, back)), hi: true }],
     btnY: 368,
     btnH: 44,
     gap: 0,
-    btnW: 200
+    btnW: 200,
+    back: () => (page > 0 ? showHowto(page - 1, back) : back())
   })
+}
+
+function resume() {
+  setScreen('play')
 }
 
 function showPause() {
   saveRun()
+  const panel = [35, 46, W - 70, 374]
   showOverlay('pause', {
     title: 'PAUSED',
+    titleY: 60,
     color: GOLD,
-    sub: 'Floor ' + run.depth + '  ·  ' + run.kills + ' kills  ·  ' + run.gold + ' gold\nAttack ' + run.atk + '  ·  Armor ' + run.armor + '  ·  Torch ' + run.torch + '/' + run.torchMax,
-    subBox: [40, 84, W - 80, 60],
+    deco: true,
+    decoDX: 100,
+    panel,
+    sub: 'Floor ' + run.depth + '  ·  ' + run.kills + ' kills  ·  ' + run.gold + ' gold\nAttack ' + run.atk + '  ·  Armor ' + run.armor + '  ·  Potions ' + run.potions,
+    subColor: DIM,
+    subBox: [50, 110, W - 100, 44],
     buttons: [
-      { label: 'RESUME', fn: () => setScreen('play'), hi: true },
+      { label: 'RESUME', fn: resume, hi: true },
+      { label: 'SETTINGS', fn: () => showSettings(showPause) },
+      { label: 'HOW TO PLAY', fn: () => showHowto(0, showPause) },
       { label: 'SAVE & QUIT', fn: showMenu }
     ],
-    btnY: 170,
-    btnH: 52,
-    gap: 64
+    btnY: 164,
+    btnH: 44,
+    gap: 52,
+    btnW: 250,
+    foot: run.daily ? 'Daily dungeon  ·  run saved' : 'Run saved  ·  tap outside to resume',
+    footY: 384,
+    back: resume,
+    outsideFn: resume
+  })
+}
+
+// ---------- settings ----------
+function showSettings(back) {
+  const v = meta.vib
+  const onOff = (b) => (b ? 'ON' : 'OFF')
+  const off = !v.on
+  const change = (fn, test) => () => {
+    fn()
+    saveMeta()
+    if (test) test()
+    showSettings(back)
+  }
+  const fromPause = back === showPause
+  showOverlay('settings', {
+    title: 'SETTINGS',
+    titleY: 34,
+    color: GOLD,
+    deco: true,
+    decoDX: 108,
+    panel: fromPause ? [30, 22, W - 60, 404] : null,
+    subBox: [40, 80, W - 80, 10],
+    buttons: [
+      { label: 'VIBRATION', value: onOff(v.on), on: v.on, fn: change(() => (v.on = !v.on), () => buzz('mid', 'test')) },
+      { label: 'STRENGTH', value: POWER_NAMES[v.power], on: true, dim: off, fn: change(() => (v.power = (v.power + 1) % 3), () => buzz('mid', 'test')) },
+      { label: 'COMBAT', value: onOff(v.combat), on: v.combat, dim: off, fn: change(() => (v.combat = !v.combat), () => v.combat && buzz('strong', 'combat')) },
+      { label: 'HEARTBEAT', value: onOff(v.beat), on: v.beat, dim: off, fn: change(() => (v.beat = !v.beat), () => v.beat && heartbeat()) },
+      { label: 'PICKUPS', value: onOff(v.events), on: v.events, dim: off, fn: change(() => (v.events = !v.events), () => v.events && buzz('mid', 'event')) },
+      { label: 'DETAIL', value: colW + ' px', on: true, fn: change(() => { meta.col = (meta.col + 1) % COL_WIDTHS.length; colW = COL_WIDTHS[meta.col]; perf.frames = 0 }) },
+      { label: 'BACK', fn: back, hi: true, w: 150, h: 40, y: 368 }
+    ],
+    btnY: 86,
+    btnH: 40,
+    gap: 46,
+    btnW: 290,
+    back,
+    outsideFn: fromPause ? back : null
   })
 }
 
@@ -2072,6 +2209,7 @@ function onTap(x, y) {
         return
       }
     }
+    if (overlayOutside && overlayPanel && !inBox(x, y, overlayPanel)) overlayOutside()
     return
   }
   if (y < VY) {
@@ -2117,7 +2255,13 @@ function handleTouch(kind, e) {
 // System swipes: while playing every direction is a move, so swipe right must not close the app.
 function onGesture4(ev) {
   const dir = ev === GESTURE_RIGHT ? 'right' : ev === GESTURE_LEFT ? 'left' : ev === GESTURE_UP ? 'up' : ev === GESTURE_DOWN ? 'down' : ''
-  if (!dir || screen !== 'play') return false
+  if (!dir) return false
+  if (screen !== 'play') {
+    // menus: swipe right goes back. Only the main menu and the death screen let it leave the app.
+    if (screen === 'menu' || screen === 'dead') return false
+    if (dir === 'right' && overlayBack) overlayBack()
+    return true
+  }
   onSwipe(dir)
   return true
 }
@@ -2148,10 +2292,14 @@ function buildScreen() {
   ui.flash = [mkRect(0, VY, W, 6, RED, 0), mkRect(0, VY + VH - 6, W, 6, RED, 0), mkRect(0, VY, 6, VH, RED, 0), mkRect(W - 6, VY, 6, VH, RED, 0)]
   ui.flash.forEach((o) => setVisible(o, false))
 
-  // top: HP and torch bars, floor and gold
-  const bw = 110
-  ui.hpBox = [Math.round(W / 2 - bw - 8), 12, bw, 14]
-  ui.torchBox = [Math.round(W / 2 + 8), 12, bw, 14]
+  // top: HP and torch bars with the pause button between them, then floor and gold
+  const bw = 98
+  ui.hpBox = [Math.round(W / 2 - bw - 22), 12, bw, 14]
+  ui.torchBox = [Math.round(W / 2 + 22), 12, bw, 14]
+  mkRect(Math.round(W / 2 - 15), 5, 30, 28, EDGE, 9)
+  mkRect(Math.round(W / 2 - 13), 7, 26, 24, PANEL_ON, 7)
+  mkRect(Math.round(W / 2 - 6), 13, 4, 12, GOLD, 1)
+  mkRect(Math.round(W / 2 + 2), 13, 4, 12, GOLD, 1)
   mkRect(ui.hpBox[0], ui.hpBox[1], bw, 14, BAR_BACK, 7)
   mkRect(ui.torchBox[0], ui.torchBox[1], bw, 14, BAR_BACK, 7)
   ui.hp = mkRect(ui.hpBox[0], ui.hpBox[1], bw, 14, GREEN, 7)
@@ -2184,7 +2332,7 @@ function buildScreen() {
   ui.float = mkText(W / 2 - 100, VY + HOR - 90, 200, 34, 26, WHITE)
   setVisible(ui.float, false)
   ui.hint = mkText(40, VY + VH - 70, W - 80, 60, 15, WHITE, true)
-  setText(ui.hint, 'Swipe up to walk, left/right to turn.\nTap the top bars to pause.')
+  setText(ui.hint, 'Swipe up to walk, left/right to turn.\nTap II at the top to pause.')
   setVisible(ui.hint, false)
 
   // the timing rings
@@ -2194,18 +2342,32 @@ function buildScreen() {
 
   // overlay: one shared set of widgets for every menu screen
   ui.footY = 412
+  const mkTorch = () => ({ cup: mkRect(0, 0, 4, 4, 0x5e646c, 2), stem: mkRect(0, 0, 4, 4, 0x5e646c, 1), flame: mkRect(0, 0, 4, 4, ORANGE, 2), core: mkRect(0, 0, 4, 4, GOLD, 2) })
   ui.ov = {
     cover: mkRect(0, 0, W, H, BG, 0),
+    panelEdge: mkRect(0, 0, 10, 10, EDGE, 22),
+    panelFill: mkRect(0, 0, 10, 10, PANEL, 19),
+    panelLine: mkStroke(0, 0, 10, 10, 0x3a3022, 15, 1),
+    torchL: mkTorch(),
+    torchR: mkTorch(),
+    rule: mkRect(0, 0, 10, 2, EDGE, 1),
+    gem: mkRect(0, 0, 8, 8, GOLD, 2),
     title: mkText(30, 40, W - 60, 40, 28, GOLD),
     sub: mkText(40, 84, W - 80, 30, 16, WHITE, true),
-    btns: [0, 1, 2, 3].map(() => ({
+    btns: [0, 1, 2, 3, 4, 5, 6].map(() => ({
       edge: mkRect(0, 0, 10, 10, EDGE, 14),
       fill: mkRect(0, 0, 10, 10, PANEL, 12),
       label: mkText(0, 0, 10, 10, 20, WHITE),
-      desc: mkText(0, 0, 10, 10, 14, DIM)
+      desc: mkText(0, 0, 10, 10, 14, DIM),
+      rlabel: mkText(0, 0, 10, 10, 18, WHITE, false, align.LEFT),
+      pillEdge: mkRect(0, 0, 10, 10, GOLD, 5),
+      pill: mkRect(0, 0, 10, 10, PANEL, 4),
+      pillText: mkText(0, 0, 10, 10, 15, GOLD)
     })),
     foot: mkText(W / 2 - 130, ui.footY - 6, 260, 30, 14, DIM)
   }
+  const t = ui.ov
+  t.deco = [t.torchL.cup, t.torchL.stem, t.torchL.flame, t.torchL.core, t.torchR.cup, t.torchR.stem, t.torchR.flame, t.torchR.core, t.rule, t.gem]
   hideOverlay()
 
   // touch layer: an empty full-screen text widget on top of everything
@@ -2235,6 +2397,10 @@ function tick() {
       }
       if (mapDirty) drawAutomap()
       if (t - lastStepPoll > 20000) pollSteps()
+    }
+    if (ui.decoOn && t - lastFlicker > 140) {
+      lastFlicker = t
+      flickerTorches()
     }
     if (ui.msg.v && t > msgUntil) setVisible(ui.msg, false)
     if (ui.float.v && t > floatUntil) setVisible(ui.float, false)
