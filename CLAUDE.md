@@ -4,7 +4,7 @@ Read this first. It records what was built and decided in earlier sessions, so a
 
 ## What this folder is
 
-Eight original games for the **Amazfit Bip 6** smartwatch: Zepp OS, API 4.0, 390×450 touch screen, corners rounded by about 86 px. All JavaScript, one folder per game. The folder is also a public GitHub repo with playable browser demos.
+Nine original games for the **Amazfit Bip 6** smartwatch: Zepp OS, API 4.0, 390×450 touch screen, corners rounded by about 86 px. All JavaScript, one folder per game. The folder is also a public GitHub repo with playable browser demos.
 
 | Folder | appId | What it is |
 |---|---|---|
@@ -16,8 +16,9 @@ Eight original games for the **Amazfit Bip 6** smartwatch: Zepp OS, API 4.0, 390
 | Stick Duel | 21385 | Swipe-controlled stickman fighter (drawLine on one canvas strip) |
 | Depth Crawl | 21386 | First-person roguelite raycaster; torch refuelled by real steps |
 | Neon Horizon | 21387 | Synthwave pseudo-3D night racer with wet-road reflections |
+| Alchemist Cauldron | 21388 | Merge puzzle (swipe): brew ingredients up to the Philosopher's Stone; catalyst tiles, step-earned undo spoons |
 
-A new game takes the **next free appId (21388)**.
+A new game takes the **next free appId (21389)**.
 
 ## Layout
 
@@ -38,6 +39,7 @@ README.md                    public front page of the repo
 - **Canvas safety on the watch:** a zero-width or zero-height `drawRect` (x1==x2 or y1==y2) makes the watch throw a bare `null`. Pass x2/y2 *one past* the last pixel. Prefer **one canvas** per page, with pre-rendered PNG scenery moved via `prop.X`. Neon Horizon v1 broke on both counts; keep doing both fixes in new games.
 - **Wristlings has an in-game GUIDE** (swipe left on the den; `guidePages()` in `page/index.js`). Whenever a Wristlings mechanic changes, update the matching guide page in the same change, and build the guide text from the game's constants (`GUARD_TAKEN`, `CATCH_BASE`, …), not hard-coded numbers.
 - Wristlings sprites come from `tools/sprites.cjs` (shape lists → toon-shaded PNGs) and its UI art from `tools/ui.cjs` (which also writes `page/uiart.js`). The richer look was requested because the earlier games all looked alike.
+- Alchemist Cauldron art comes from its `tools/art.cjs` (same shape-list approach: tiles, scene, menu, icon). Every tile sprite is 84×84 with the tile centred, so swapping between spawn/normal/pop sizes never moves a tile; keep that when adding levels. `bg.png` has a transparent hole over a coloured "liquid" rect whose colour follows the best tile. Its HOW TO PLAY text is built from the rule constants (`CAT_CHANCE`, `STEPS_PER_SPOON`, …).
 
 ## Building and running
 

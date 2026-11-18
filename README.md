@@ -1,6 +1,6 @@
 # Bip 6 Watch Games
 
-Eight original games for the **Amazfit Bip 6** smartwatch, written in JavaScript for **Zepp OS** (API 4.0, 390×450 touch screen).
+Nine original games for the **Amazfit Bip 6** smartwatch, written in JavaScript for **Zepp OS** (API 4.0, 390×450 touch screen).
 
 **[▶ Play them in your browser](https://tudormarianvlad.github.io/bip6-watch-games/)**: browser builds that fake the watch APIs, so you can try every game without a watch.
 
@@ -14,6 +14,7 @@ Eight original games for the **Amazfit Bip 6** smartwatch, written in JavaScript
 | <img src="docs/icons/tilt-arena.png" width="48"> | **Tilt Arena** | Arena survival, steered by tilting your wrist | Accelerometer |
 | <img src="docs/icons/orbit-pop.png" width="48"> | **Orbit Pop** | Marble shooter | Touch aiming |
 | <img src="docs/icons/mine-patrol.png" width="48"> | **Mine Patrol** | Mine-sweeping puzzle | Best-time saves |
+| <img src="docs/icons/alchemist-cauldron.png" width="48"> | **Alchemist's Cauldron** | Merge puzzle: brew ingredients up to the Philosopher's Stone | Swipe gestures, step counter |
 
 ## Highlights
 
