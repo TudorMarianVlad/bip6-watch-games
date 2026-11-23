@@ -1,7 +1,7 @@
 // Wristlings art importer: turns your own creature drawings into game sprites.
 //
 // 1. Put one PNG per creature in Wristlings/art/, named after its id:
-//      art/embit.png, art/cindervix.png, ...   (ids: see docs/art-briefs.md)
+//      art/embit.png, art/cindervix.png, ...   (ids: see docs/creatures.md)
 //    Any size. Transparent background is best; a plain single-colour background
 //    also works (it is removed automatically).
 //    The creature should face LEFT. If yours faces right, name it embit.right.png
