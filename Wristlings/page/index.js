@@ -2,7 +2,7 @@
 // (API 4.0, built for the Amazfit Bip 6, 390 x 450).
 //
 // THE LOOP
-//   * Walking earns TRACKS (1 per 250 steps today, plus 1 free every 90 min, max 6).
+//   * Walking earns TRACKS (1 per 300 steps today, plus 1 free every 2 hours, max 6).
 //     Spend a track on EXPLORE to meet a wild Wristling.
 //   * Battles are 1 vs 1 and turn based: pick one of 3 moves. Elements matter
 //     (FIRE beats GRASS, WATER beats FIRE ...). The move buttons say STRONG / WEAK.
@@ -38,9 +38,9 @@ import { ELEMENTS, SHORT, STRONG, MOVES, SPECIES, BOOK, STARTERS, BERRIES, effec
 const TICK_MS = 50
 const SLIDE_MS = 230 // menu transition: quick enough to stay snappy
 const SLIDE_NAMES = { den: 1, guide: 1, settings: 1, team: 1, detail: 1, feed: 1, book: 1, boss: 1 }
-const STEPS_PER_TRACK = 250
+const STEPS_PER_TRACK = 300
 const TRACK_CAP = 6
-const FREE_TRACK_MIN = 90 // a free track every 90 minutes, so you can play without walking
+const FREE_TRACK_MIN = 120 // a free track every 2 hours, so you can play without walking
 const STEPS_PER_BERRY = 800
 const STEPS_PER_CHARM = 1500
 const START_TRACKS = 3
@@ -52,13 +52,14 @@ const FULL_DECAY_PER_HOUR = 4 // FOOD 100 -> 0 in 25 hours
 const HUNGRY_BELOW = 25
 const HAPPY_FROM = 70
 const MOOD_EFFECT = 0.1 // happy: +10% attack and defence, hungry: -10%
-const TRAIN_XP_BASE = 3 // TRAIN: each active minute gives (this + level) XP
+const TRAIN_XP_BASE = 3 // TRAIN: active minutes give XP, capped
+const TRAIN_XP_CAP_MIN = 30 // at most this many active minutes count per day
 const GOOD_SLEEP_MIN = 360 // a night this long (minutes) fully heals the team
 const WILD_EVOLVED_LV = 13 // evolved forms show up wild once your lead is this level
 const WILD_FINAL_LV = 28 // ...and fully evolved ones (the third stage) once it is this level
 const WILD_EVOLVED_CHANCE = 0.18 // ...and then this often
 const AI_REST_BELOW = 0.35 // wild ones that know Rest use it below this much HP
-const EVOLVE_JOY = 40
+const EVOLVE_JOY = 55
 const HP_REGEN_PER_MIN = 0.03 // 3% of max HP per minute outside battle
 const RESTS_PER_BATTLE = 2
 const CRIT_CHANCE = 1 / 16
@@ -222,7 +223,7 @@ function maxHp(m) {
   return statsOf(m).hp
 }
 function xpNext(lv) {
-  return Math.floor(10 + lv * lv * 1.6)
+  return Math.floor(12 + lv * lv * 1.9)
 }
 // The 3 move buttons always have the same roles:
 //   1. main attack: the strongest move of its own element
@@ -1231,7 +1232,7 @@ function buildDen() {
   u.hp = row(238, 'HP', GREEN)
   u.food = row(258, 'FOOD', ORANGE)
   u.joy = row(278, 'JOY', PINK)
-  u.status = mkTextS(30, 288, W - 60, 26, 17, DIM, align.CENTER_H, '')
+  u.status = mkTextS(24, 284, W - 48, 34, 15, DIM, align.CENTER_H, '')
   u.explore = mkArtButton(45, 316, 'btn_explore', explore, { badge: true })
   const bx = [34, 116, 198, 280]
   mkArtButton(bx[0], 378, 'btn_feed', () => goto('feed', { id: leadMon().id, back: 'den' }, 1))
@@ -1250,7 +1251,7 @@ function updateDen() {
   setText(u.tracks, st.tracks + '/' + TRACK_CAP)
   setText(u.charms, String(st.charms))
   const next = stepsToNextTrack()
-  setText(u.walk, stepsToday < 0 ? 'no step counter: free track every 90 min' : st.tracks >= TRACK_CAP ? fmt(stepsToday) + ' steps today: tracks full!' : 'next track in ' + next + ' steps  (' + fmt(stepsToday) + ' today)')
+  setText(u.walk, stepsToday < 0 ? 'no step counter: free track every 2 hours' : st.tracks >= TRACK_CAP ? fmt(stepsToday) + ' steps today: tracks full!' : 'next track in ' + next + ' steps  (' + fmt(stepsToday) + ' today)')
   updateFacing()
   setSrc(u.img, 'mon/' + m.sp + '.png')
   setText(u.name, s.name + '  Lv ' + m.lv)
@@ -1641,11 +1642,12 @@ function train() {
   const tm = trainMinutes()
   if (tm <= 0) return
   const m = leadMon()
-  const xp = tm * (TRAIN_XP_BASE + m.lv)
+  const used = Math.min(tm, TRAIN_XP_CAP_MIN)
+  const xp = used * (TRAIN_XP_BASE + m.lv)
   st.train.used += tm
   m.joy = clamp(m.joy + 5, 0, 100)
   const msgs = gainXp(m, xp)
-  notices.push({ title: 'TRAINING', text: tm + ' active minutes today!\n' + msgs.join('\n'), img: 'mon/' + m.sp + '.png' })
+  notices.push({ title: 'TRAINING', text: used + ' active minutes today' + (tm > used ? ' (' + TRAIN_XP_CAP_MIN + ' max)' : '') + '!\n' + msgs.join('\n'), img: 'mon/' + m.sp + '.png' })
   buzz('mid', 'other')
   home()
 }
@@ -2314,11 +2316,11 @@ function enemyFainted() {
     if (r.egg) giveEgg()
     say('Boss reward: ' + rewardText(r.charms, r.gold, r.egg) + '!', null, 1400)
   }
-  const xp = Math.round((10 + e.lv * 7) * (SPECIES[e.sp].rare || e.boss ? 1.5 : 1) * (e.boss ? 2 : 1))
+  const xp = Math.round((8 + e.lv * 6) * (SPECIES[e.sp].rare || e.boss ? 1.5 : 1) * (e.boss ? 2 : 1))
   const p = activeMon()
   p.joy = clamp(p.joy + 3, 0, 100)
   const msgs = gainXp(p, xp)
-  for (const m of partyMons()) if (m !== p && m.hp >= 1) msgs.push(...gainXp(m, Math.floor(xp / 2)).filter((x) => x.indexOf(' XP') < 0))
+  for (const m of partyMons()) if (m !== p && m.hp >= 1) msgs.push(...gainXp(m, Math.floor(xp / 3)).filter((x) => x.indexOf(' XP') < 0))
   for (const msg of msgs) say(msg, null, 750)
   if (Math.random() < BERRY_DROP) {
     const b = Math.random() < 0.15 ? 'gold' : pick(['red', 'blue', 'green'])
@@ -2527,7 +2529,7 @@ function caught() {
     where = 'It joined your party!'
   }
   const p = activeMon()
-  const msgs = gainXp(p, Math.round((10 + e.lv * 7) / 2))
+  const msgs = gainXp(p, Math.round((8 + e.lv * 6) / 2))
   notices.push({
     title: (first ? 'NEW! ' : '') + SPECIES[e.sp].name,
     text: where + (first ? ' New entry in your book.' : '') + '\n' + msgs.join('\n'),
@@ -2839,7 +2841,7 @@ function buildRewards() {
     mkText(250, y, 96, 24, size, done ? GOLD : WHITE, align.RIGHT, got + ' / ' + all)
   })
   const nx = nextMilestone()
-  mkTextS(30, 278, W - 60, 34, size, GREEN, align.CENTER_H, nx ? 'At ' + nx[0] + ' caught: ' + rewardText(nx[1], nx[2], nx[3]) : 'Every book reward collected!')
+  mkTextS(24, 274, W - 48, 42, size, GREEN, align.CENTER_H, nx ? 'At ' + nx[0] + ' caught: ' + rewardText(nx[1], nx[2], nx[3]) : 'Every book reward collected!')
 }
 
 // one creature's page, on top of the grid (a tap anywhere closes it)
@@ -3021,7 +3023,7 @@ function guidePages() {
     {
       title: 'HEART & SLEEP',
       text:
-        'TRAIN: minutes today with your pulse well above resting become XP for your LEAD (each minute = ' + TRAIN_XP_BASE + ' + its level XP).\n\n' +
+        'TRAIN: minutes today with your pulse well above resting become XP for your LEAD (each minute = ' + TRAIN_XP_BASE + ' + its level XP, up to ' + TRAIN_XP_CAP_MIN + ' min/day).\n\n' +
         'SLEEP: ' + GOOD_SLEEP_MIN / 60 + 'h or more fully heals the team and adds JOY. Lots of REM sleep can bring a rare DREAM VISITOR in the morning.'
     },
     {
