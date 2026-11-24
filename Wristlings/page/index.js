@@ -26,7 +26,7 @@
 // Screens are rebuilt from scratch when you move between them (one touch layer
 // on top catches every tap), and only changed values are pushed to widgets.
 
-import { createWidget, deleteWidget, widget, event, prop, align, text_style, setStatusBarVisible } from '@zos/ui'
+import { createWidget, deleteWidget, widget, event, prop, align, text_style, setStatusBarVisible, getTextLayout } from '@zos/ui'
 import { getDeviceInfo } from '@zos/device'
 import { LocalStorage } from '@zos/storage'
 import { Time, Step, HeartRate, Sleep, Weather, Calorie, Pai, Battery, Compass, Vibrator, VIBRATOR_SCENE_SHORT_LIGHT, VIBRATOR_SCENE_SHORT_STRONG, VIBRATOR_SCENE_SHORT_MIDDLE } from '@zos/sensor'
@@ -36,6 +36,8 @@ import { ELEMENTS, SHORT, STRONG, MOVES, SPECIES, BOOK, STARTERS, BERRIES, effec
 
 // ---------- balance ----------
 const TICK_MS = 50
+const SLIDE_MS = 230 // menu transition: quick enough to stay snappy
+const SLIDE_NAMES = { den: 1, guide: 1, settings: 1, team: 1, detail: 1, feed: 1, book: 1, boss: 1 }
 const STEPS_PER_TRACK = 250
 const TRACK_CAP = 6
 const FREE_TRACK_MIN = 90 // a free track every 90 minutes, so you can play without walking
@@ -147,7 +149,10 @@ let lastSensor = 0
 let lastHeart = 0
 let step = 'start'
 const notices = [] // messages shown (one screen each) before the den
-let screen = { name: '', ws: [], taps: [], ui: {} }
+let screen = { name: '', ws: [], poss: [], taps: [], ui: {} }
+let slide = null // active menu slide: { old, dir, t0 }
+let scrollAnim = null // active guide scroll: { from, to, t0 }
+let lastDrag = 0 // used to ignore a gesture that was really a guide drag
 
 // ---------- small helpers ----------
 let timeSensor = null
@@ -810,34 +815,43 @@ function condMet(c) {
 }
 
 // ---------- widgets ----------
-function wrap(w, extra) {
-  const o = { w }
+// Every widget is recorded by wrap() so a screen can be moved as one layer by
+// applying the same offset to all of them.
+function makeWidget(type, params) {
+  return createWidget(type, params)
+}
+function wrap(w, extra, params) {
+  const o = { w, x: params ? params.x : undefined, y: params ? params.y : undefined, h: params ? params.h : undefined }
   if (extra) for (const k in extra) o[k] = extra[k]
+  o.bx = o.x
+  o.by = o.y
   screen.ws.push(w)
+  screen.poss.push(o)
   return o
 }
 function mkRect(x, y, w, h, color, radius) {
-  return wrap(createWidget(widget.FILL_RECT, { x, y, w, h, radius: radius || 0, color }), { b: { x, y, w, h, radius: radius || 0, color } })
+  const p = { x, y, w, h, radius: radius || 0, color }
+  return wrap(makeWidget(widget.FILL_RECT, p), { b: p }, p)
 }
 function mkRing(x, y, w, h, color, radius, lw) {
-  return wrap(createWidget(widget.STROKE_RECT, { x, y, w, h, radius, line_width: lw, color }), { b: { x, y, w, h, radius, color, line_width: lw } })
+  const p = { x, y, w, h, radius, line_width: lw, color }
+  return wrap(makeWidget(widget.STROKE_RECT, p), { b: p }, p)
 }
-function mkText(x, y, w, h, size, color, alignH, text) {
-  return wrap(
-    createWidget(widget.TEXT, {
-      x, y, w, h,
-      text: text || '',
-      text_size: size,
-      color,
-      align_h: alignH === undefined ? align.CENTER_H : alignH,
-      align_v: align.CENTER_V,
-      text_style: text_style.WRAP
-    }),
-    { t: text || '', c: color }
-  )
+function mkText(x, y, w, h, size, color, alignH, text, alignV) {
+  const p = {
+    x, y, w, h,
+    text: text || '',
+    text_size: size,
+    color,
+    align_h: alignH === undefined ? align.CENTER_H : alignH,
+    align_v: alignV === undefined ? align.CENTER_V : alignV,
+    text_style: text_style.WRAP
+  }
+  return wrap(makeWidget(widget.TEXT, p), { t: text || '', c: color, tp: p }, p)
 }
 function mkImg(x, y, src) {
-  return wrap(createWidget(widget.IMG, { x, y, src }), { src, x, y, v: true })
+  const p = { x, y, src }
+  return wrap(makeWidget(widget.IMG, p), { src, x, y, v: true }, p)
 }
 function setText(o, v) {
   if (o.sh) setText(o.sh, v)
@@ -849,6 +863,18 @@ function setTextColor(o, c) {
   if (o.c === c) return
   o.c = c
   o.w.setProperty(prop.COLOR, c)
+}
+function setTextStyle(o, changes) {
+  const b = o.tp || o.b
+  if (!b) return
+  let same = true
+  for (const k in changes) if (b[k] !== changes[k]) same = false
+  if (same) return
+  for (const k in changes) b[k] = changes[k]
+  if (changes.color !== undefined) o.c = changes.color
+  if (changes.x !== undefined) o.x = changes.x
+  if (changes.y !== undefined) o.y = changes.y
+  o.w.setProperty(prop.MORE, b)
 }
 function setVisible(o, v) {
   if (o.sh) setVisible(o.sh, v)
@@ -920,9 +946,9 @@ function fitSize(text, w, h, max, min) {
   return min
 }
 
-function mkTextS(x, y, w, h, size, color, alignH, text) {
-  const sh = mkText(x + 1, y + 2, w, h, size, INK, alignH, text)
-  const o = mkText(x, y, w, h, size, color, alignH, text)
+function mkTextS(x, y, w, h, size, color, alignH, text, alignV) {
+  const sh = mkText(x + 1, y + 2, w, h, size, INK, alignH, text, alignV)
+  const o = mkText(x, y, w, h, size, color, alignH, text, alignV)
   o.sh = sh
   return o
 }
@@ -979,8 +1005,9 @@ function addTap(x, y, w, h, fn) {
 }
 
 // ---------- screens ----------
-function clearScreen() {
-  for (const w of screen.ws) {
+function clearWidgets(ws) {
+  if (!ws) return
+  for (const w of ws) {
     try {
       if (typeof deleteWidget === 'function') deleteWidget(w)
       else w.setProperty(prop.VISIBLE, false)
@@ -993,15 +1020,68 @@ function clearScreen() {
     }
   }
 }
+function clearScreen() {
+  clearWidgets(screen.ws)
+}
 
-function goto(name, arg) {
-  step = 'goto ' + name
-  clearScreen()
-  screen = { name, ws: [], taps: [], ui: {}, arg, instant: false }
+function ease(p) {
+  return 1 - (1 - p) * (1 - p)
+}
+
+// Move every widget on a screen by the same offset during a transition.
+function moveLayer(s, dx, dy) {
+  if (!s) return
+  dx = Math.round(dx || 0)
+  dy = Math.round(dy || 0)
+  for (const o of s.poss || []) {
+    if (o.bx === undefined) continue
+    setPos(o, o.bx + dx, o.by + dy)
+  }
+}
+
+function slideDistance(axis) {
+  return axis === 'y' ? H : W
+}
+
+function finishSlide() {
+  if (!slide) return
+  moveLayer(screen, 0, 0)
+  clearWidgets(slide.old.ws)
+  slide = null
+}
+
+function tickSlide(t) {
+  if (!slide) return
+  const p = clamp((t - slide.t0) / SLIDE_MS, 0, 1)
+  const e = ease(p)
+  const dist = slideDistance(slide.axis) * slide.dir
+  if (slide.axis === 'y') {
+    moveLayer(slide.old, 0, -dist * e)
+    moveLayer(screen, 0, dist * (1 - e))
+  } else {
+    moveLayer(slide.old, -dist * e, 0)
+    moveLayer(screen, dist * (1 - e), 0)
+  }
+  if (p >= 1) finishSlide()
+}
+
+// Back reverses the way this screen came in.
+function backInfo() {
+  if (!screen || !screen.enterDir) return { dir: -1, axis: 'x' }
+  return { dir: -screen.enterDir, axis: screen.enterAxis || 'x' }
+}
+function gotoBack(name, arg) {
+  const b = backInfo()
+  goto(name, arg, b.dir, b.axis)
+}
+
+// Builds a screen without deleting the current one, so two screens can slide.
+function buildScreen(name, arg, offset, axis) {
+  screen = { name, ws: [], poss: [], taps: [], ui: {}, arg, instant: false, enterDir: 0, enterAxis: 'x' }
   // one full-screen picture instead of a fill + shapes: cheap to draw
   if (name === 'den' || name === 'battle') compassOn()
   else compassOff()
-  mkArt(0, 0, bgFor(name))
+  screen.ui.bg = mkArt(0, 0, bgFor(name))
   SCREENS[name](arg)
   // toast (above the screen, below the touch layer)
   screen.ui.toastBg = mkArt(CX - 160, 60, 'pnl_toast')
@@ -1009,7 +1089,7 @@ function goto(name, arg) {
   setVisible(screen.ui.toastBg, false)
   setVisible(screen.ui.toast, false)
   screen.toastUntil = 0
-  // touch layer: an empty full-screen text on top of everything
+  // touch layer stays put so taps always use screen coordinates
   const touch = createWidget(widget.TEXT, { x: 0, y: 0, w: W, h: H, text: '', text_size: 10, color: BG })
   screen.ws.push(touch)
   touch.addEventListener(event.CLICK_DOWN, (e) => onDown(e))
@@ -1018,7 +1098,36 @@ function goto(name, arg) {
   } catch (e) {
     // no finger-lift events: taps fire on touch-down after a short wait
   }
+  try {
+    touch.addEventListener(event.MOVE, (e) => onMove(e))
+  } catch (e) {
+    // no drag events: guide still scrolls with swipes
+  }
+  if (offset) {
+    if (axis === 'y') moveLayer(screen, 0, offset)
+    else moveLayer(screen, offset, 0)
+  }
   save()
+}
+
+function goto(name, arg, dir, axis) {
+  step = 'goto ' + name
+  if (slide) finishSlide()
+  scrollAnim = null
+  const old = screen
+  // Same-screen rebuilds (page turns, settings toggles) must not re-animate.
+  const animate = old && old.name && old.name !== name && SLIDE_NAMES[old.name] && SLIDE_NAMES[name]
+  if (!animate) {
+    clearScreen()
+    buildScreen(name, arg, 0)
+    return
+  }
+  dir = dir === -1 ? -1 : 1
+  axis = axis === 'y' ? 'y' : 'x'
+  buildScreen(name, arg, slideDistance(axis) * dir, axis)
+  screen.enterDir = dir
+  screen.enterAxis = axis
+  slide = { old, dir, axis, t0: now() }
 }
 
 function toast(msg, color) {
@@ -1041,7 +1150,8 @@ function home() {
   })
   if (st.pendingEvo.length) return goto('evolve', st.pendingEvo[0])
   if (notices.length) return goto('notice', notices.shift())
-  goto('den')
+  const b = backInfo()
+  goto('den', undefined, b.dir, b.axis)
 }
 
 // ---------- starter ----------
@@ -1124,9 +1234,9 @@ function buildDen() {
   u.status = mkTextS(30, 288, W - 60, 26, 17, DIM, align.CENTER_H, '')
   u.explore = mkArtButton(45, 316, 'btn_explore', explore, { badge: true })
   const bx = [34, 116, 198, 280]
-  mkArtButton(bx[0], 378, 'btn_feed', () => goto('feed', { id: leadMon().id, back: 'den' }))
-  mkArtButton(bx[1], 378, 'btn_team', () => goto('team', 0))
-  mkArtButton(bx[2], 378, 'btn_book', () => goto('book', 0))
+  mkArtButton(bx[0], 378, 'btn_feed', () => goto('feed', { id: leadMon().id, back: 'den' }, 1))
+  mkArtButton(bx[1], 378, 'btn_team', () => goto('team', 0, 1))
+  mkArtButton(bx[2], 378, 'btn_book', () => goto('book', 0, 1))
   u.train = mkArtButton(bx[3], 378, 'btn_train', train, { badge: true })
   u.train.offFn = () => toast(activeMinutes < 0 ? 'No heart rate data' : 'Get your pulse up: active minutes = XP', PINK)
   mkText(34, 430, W - 68, 18, 13, DIM, align.CENTER_H, 'left: GUIDE   right: BOSS   up: SETTINGS')
@@ -1693,16 +1803,31 @@ function popText(side, text, color) {
   B.fx[side].pop = now()
 }
 
-// moves a widget with the X / Y properties (MORE as a fallback)
-function setPos(o, x, y) {
+// Moves a widget. Rects/rings use MORE; text/img use X/Y (safe across Zepp).
+function setPos(o, x, y, force) {
   x = Math.round(x)
   y = Math.round(y)
-  if (o.x === x && o.y === y) return
+  if (o.sh) setPos(o.sh, x + 1, y + 2, force)
+  if (!force && o.x === x && o.y === y) return
   try {
-    if (o.x !== x) o.w.setProperty(prop.X, x)
-    if (o.y !== y) o.w.setProperty(prop.Y, y)
+    if (o.b && o.t === undefined && o.src === undefined) {
+      if (force || o.b.x !== x || o.b.y !== y) {
+        o.b.x = x; o.b.y = y
+        o.w.setProperty(prop.MORE, o.b)
+      }
+    } else if (o.src !== undefined) {
+      if (force || o.x !== x) o.w.setProperty(prop.X, x)
+      if (force || o.y !== y) o.w.setProperty(prop.Y, y)
+    } else {
+      if (force || o.x !== x) o.w.setProperty(prop.X, x)
+      if (force || o.y !== y) o.w.setProperty(prop.Y, y)
+    }
   } catch (e) {
-    o.w.setProperty(prop.MORE, o.src !== undefined ? { x, y, src: o.src } : { x, y, w: o.pw, h: o.ph })
+    try {
+      if (o.b) o.w.setProperty(prop.MORE, Object.assign({}, o.b, { x, y }))
+      else if (o.src !== undefined) o.w.setProperty(prop.MORE, { x, y, src: o.src })
+      else o.w.setProperty(prop.MORE, { x, y, w: o.pw || o.w0 || 0, h: o.ph || o.h || 0 })
+    } catch (e2) {}
   }
   o.x = x
   o.y = y
@@ -2503,12 +2628,12 @@ function buildTeam(page) {
     const slot = st.party.indexOf(m.id)
     if (slot >= 0) mkText(262, y + 36, 90, 26, 16, GOLD, align.RIGHT, slot === 0 ? 'LEAD' : 'PARTY')
     else if (m.full < HUNGRY_BELOW) mkText(262, y + 36, 90, 26, 16, ORANGE, align.RIGHT, 'HUNGRY')
-    addTap(28, y, W - 56, 72, () => goto('detail', { id: m.id, page }))
+    addTap(28, y, W - 56, 72, () => goto('detail', { id: m.id, page }, 1))
   })
   if (pages > 1) {
-    mkArtButton(50, 312, 'btn_prev', () => goto('team', (page + pages - 1) % pages))
+    mkArtButton(50, 312, 'btn_prev', () => goto('team', (page + pages - 1) % pages, -1))
     mkTextS(130, 312, 130, 50, 20, LILAC, align.CENTER_H, page + 1 + ' / ' + pages)
-    mkArtButton(260, 312, 'btn_next', () => goto('team', (page + 1) % pages))
+    mkArtButton(260, 312, 'btn_next', () => goto('team', (page + 1) % pages, 1))
   } else mkTextS(30, 312, W - 60, 50, 17, LILAC, align.CENTER_H, 'Tap a Wristling for details')
   mkArtButton(95, 368, 'btn_back', () => home())
 }
@@ -2540,7 +2665,7 @@ function buildDetail(arg) {
     st.party = st.party.filter((x) => x !== m.id)
     st.party.unshift(m.id)
     if (st.party.length > PARTY_MAX) st.party.pop()
-    goto('detail', arg)
+    goto('detail', arg, 1)
   })
   mkArtButton(143, 322, slot >= 0 ? 'btn_bench' : 'btn_join', () => {
     if (slot >= 0) {
@@ -2550,10 +2675,10 @@ function buildDetail(arg) {
       if (st.party.length >= PARTY_MAX) return toast('Party is full (3). BENCH one first', GOLD)
       st.party.push(m.id)
     }
-    goto('detail', arg)
+    goto('detail', arg, 1)
   })
-  mkArtButton(252, 322, 'btn_feed_s', () => goto('feed', { id: m.id, back: 'detail', page: arg.page }))
-  mkArtButton(95, 376, 'btn_back', () => goto('team', arg.page))
+  mkArtButton(252, 322, 'btn_feed_s', () => goto('feed', { id: m.id, back: 'detail', page: arg.page }, 1))
+  mkArtButton(95, 376, 'btn_back', () => gotoBack('team', arg.page))
 }
 
 // ---------- feeding ----------
@@ -2577,7 +2702,7 @@ function buildFeed(arg) {
   })
   u.hint = mkTextS(24, 330, W - 48, 30, 18, LILAC, align.CENTER_H, 'Tap a berry to feed')
   mkArtButton(95, 368, 'btn_back', () => {
-    if (arg.back === 'detail') goto('detail', { id: m.id, page: arg.page })
+    if (arg.back === 'detail') gotoBack('detail', { id: m.id, page: arg.page })
     else home()
   })
   updateFeed()
@@ -2694,11 +2819,11 @@ function buildBook(arg) {
     const seen = caught || st.seen[id]
     mkImg(x + 6, y + 2, 'mon/' + id + (caught ? '_s' : '_x') + '.png')
     mkText(x, y + 60, 76, 20, 13, caught ? WHITE : seen ? LILAC : DIM, align.CENTER_H, seen ? SPECIES[id].name : '???')
-    addTap(x, y, 76, 80, () => goto('book', { page, info: id }))
+    addTap(x, y, 76, 80, () => goto('book', { page, info: id }, 1))
   })
-  mkArtButton(50, 316, 'btn_prev', () => goto('book', (page + pages - 1) % pages))
+  mkArtButton(50, 316, 'btn_prev', () => goto('book', (page + pages - 1) % pages, -1))
   mkTextS(130, 316, 130, 50, 20, LILAC, align.CENTER_H, page + 1 + ' / ' + pages)
-  mkArtButton(260, 316, 'btn_next', () => goto('book', (page + 1) % pages))
+  mkArtButton(260, 316, 'btn_next', () => goto('book', (page + 1) % pages, 1))
   mkArtButton(95, 372, 'btn_back', () => home())
   if (info) buildBookPage(info, page)
 }
@@ -2748,7 +2873,7 @@ function buildBookPage(id, page) {
   mkText(30, 210, W - 60, 22, 15, GOLD, align.CENTER_H, 'WHERE TO FIND IT')
   mkText(BOOK_BOX.x, BOOK_BOX.y, BOOK_BOX.w, BOOK_BOX.h, pageTextSize(), WHITE, align.CENTER_H, findText(id))
   mkText(30, 390, W - 60, 22, 14, DIM, align.CENTER_H, 'tap anywhere to close')
-  addTap(0, 0, W, H, () => goto('book', page))
+  addTap(0, 0, W, H, () => gotoBack('book', page))
 }
 
 // ---------- settings (swipe up on the den) ----------
@@ -2770,7 +2895,7 @@ function buildSettings() {
     mkArtButton(258, y + 14, on ? 'tgl_on' : 'tgl_off', () => {
       st.settings[r.key] = !on
       save()
-      goto('settings')
+      goto('settings', undefined, 1)
       // a little buzz so you feel it is back on
       if (!on) buzz('mid', r.cat)
     })
@@ -2881,7 +3006,7 @@ function guidePages() {
     {
       title: 'WELCOME',
       text:
-        'Wristlings live on your wrist.\n\nWalk to earn TRACKS. Spend a track on EXPLORE to meet a wild Wristling, then battle it, catch it, feed it and help it evolve.\n\nSwipe left / right (or tap the arrows) to turn pages.\n\nSwipe UP on the den for SETTINGS (vibrations, reset).'
+        'Wristlings live on your wrist.\n\nWalk to earn TRACKS. Spend a track on EXPLORE to meet a wild Wristling, then battle it, catch it, feed it and help it evolve.\n\nDrag up or down to scroll this guide. Swipe RIGHT to go back.\n\nSwipe UP on the den for SETTINGS (vibrations, reset).'
     },
     {
       title: 'WALKING',
@@ -3032,27 +3157,181 @@ function guidePages() {
   return pages
 }
 
-function buildGuide(page) {
-  const pages = guidePages()
-  page = clamp(page || 0, 0, pages.length - 1)
-  screen.arg = page
-  const p = pages[page]
-  mkTextS(40, 8, W - 80, 38, 28, GOLD, align.CENTER_H, p.title)
-  mkText(40, 42, W - 80, 20, 14, LILAC, align.CENTER_H, page + 1 + ' / ' + pages.length)
-  if (p.chart) {
-    // one row per element: what it beats
-    Object.keys(ELEMENTS).forEach((el, i) => {
-      const y = 68 + i * 26
-      const e = ELEMENTS[el]
-      mkRect(30, y + 9, 10, 10, e.color, 5)
-      mkTextS(46, y, 96, 28, 17, e.color, align.LEFT, e.name)
-      mkText(140, y, 222, 28, 15, WHITE, align.LEFT, 'beats ' + STRONG[el].map((x) => ELEMENTS[x].name).join(' '))
-    })
-    mkText(24, 310, W - 48, 50, 15, LILAC, align.CENTER_H, 'Beats = x' + SUPER_MULT + ' damage. Hitting the same element, or one that beats yours = x' + WEAK_MULT)
-  } else mkTextS(GUIDE_BOX.x, GUIDE_BOX.y, GUIDE_BOX.w, GUIDE_BOX.h, pageTextSize(), WHITE, align.CENTER_H, p.text)
-  mkArtButton(30, 370, 'btn_prev', () => goto('guide', page - 1))
-  mkArtButton(120, 370, 'btn_back_s', () => home())
-  mkArtButton(280, 370, 'btn_next', () => goto('guide', page + 1))
+// Ask the UI engine for the real wrapped height so sections stack seamlessly.
+function textHeight(text, w, size, min) {
+  try {
+    const r = getTextLayout(String(text), { text_size: size, text_width: w, wrapped: 1 })
+    if (r && typeof r.height === 'number' && r.height > 0) return Math.ceil(r.height) + 4
+  } catch (e) {
+    // fall through to the estimate
+  }
+  const s = fitSize(text, w, 100000, size, min)
+  const perLine = Math.max(1, Math.floor(w / (s * CHAR_W)))
+  let lines = 0
+  for (const para of String(text).split('\n')) lines += Math.max(1, Math.ceil(para.length / perLine))
+  return Math.max(24, Math.ceil(lines * s * LINE_H) + 6)
+}
+function chartText() {
+  const lines = Object.keys(ELEMENTS).map((el) => ELEMENTS[el].name + ' beats ' + STRONG[el].map((x) => ELEMENTS[x].name).join(' '))
+  lines.push('', 'Beats = x' + SUPER_MULT + ' damage. The same element, or one that beats yours = x' + WEAK_MULT)
+  return lines.join('\n')
+}
+function guideText() {
+  const parts = []
+  for (const p of guidePages()) {
+    parts.push(p.title)
+    parts.push(p.chart ? chartText() : p.text)
+  }
+  return parts.join('\n\n')
+}
+
+// Guide: fixed chrome + fixed row pool. Only row content/style changes on scroll;
+// no background/title/button/widget movement.
+function guideWrap(text, w, size) {
+  const perLine = Math.max(1, Math.floor(w / (size * CHAR_W)))
+  const out = []
+  for (const para of String(text).split('\n')) {
+    if (para === '') { out.push(''); continue }
+    let line = ''
+    for (const word of para.split(/\s+/)) {
+      if (!word) continue
+      const next = line ? line + ' ' + word : word
+      if (next.length <= perLine) { line = next; continue }
+      if (line) out.push(line)
+      if (word.length > perLine) {
+        let i = 0
+        while (i + perLine < word.length) { out.push(word.slice(i, i + perLine)); i += perLine }
+        line = word.slice(i)
+      } else line = word
+    }
+    out.push(line)
+  }
+  return out.length ? out : ['']
+}
+
+function buildGuideRows() {
+  const rows = []
+  const pushSpacer = (n) => { for (let i = 0; i < (n || 1); i++) rows.push({ type: 'spacer' }) }
+  const pushTitle = (text) => rows.push({ type: 'title', text })
+  const pushText = (text, color) => {
+    for (const line of guideWrap(text, W - 66, 15)) rows.push({ type: 'text', text: line, color: color || WHITE })
+  }
+  for (let i = 0; i < guidePages().length; i++) {
+    const p = guidePages()[i]
+    if (i > 0) pushSpacer(1)
+    pushTitle(p.title)
+    if (p.chart) {
+      for (const el of Object.keys(ELEMENTS)) {
+        const beats = STRONG[el].map((x) => ELEMENTS[x].name).join(', ')
+        rows.push({ type: 'element', el, text: ELEMENTS[el].name + ' beats ' + beats })
+      }
+      pushSpacer(1)
+      pushText('Beats = x' + SUPER_MULT + ' damage.', GOLD)
+      pushText('Same, or beats yours = x' + WEAK_MULT + '.', DIM)
+    } else {
+      pushText(p.text, WHITE)
+    }
+  }
+  pushSpacer(2)
+  return rows
+}
+
+function setGuideScroll(v) {
+  const g = screen.guide
+  if (!g) return
+  g.scroll = clamp(Math.round(v), 0, g.max)
+  const start = g.lineH ? clamp(Math.floor(g.scroll / g.lineH), 0, g.maxStart) : 0
+
+  for (let i = 0; i < g.pool.length; i++) {
+    const slot = g.pool[i]
+    const row = g.rows[start + i]
+    if (!row) {
+      setVisible(slot.dot, false)
+      setVisible(slot.text, false)
+      continue
+    }
+    if (row.type === 'title') {
+      setVisible(slot.dot, false)
+      setTextStyle(slot.text, { x: 28, y: slot.y, w: W - 66, h: 20, align_h: align.CENTER_H, align_v: align.CENTER_V, text_size: 19, color: GOLD })
+      setText(slot.text, row.text)
+      setVisible(slot.text, true)
+    } else if (row.type === 'text') {
+      setVisible(slot.dot, false)
+      setTextStyle(slot.text, { x: 28, y: slot.y, w: W - 66, h: 20, align_h: align.LEFT, align_v: align.CENTER_V, text_size: 15, color: row.color || WHITE })
+      setText(slot.text, row.text)
+      setVisible(slot.text, true)
+    } else if (row.type === 'element') {
+      const color = (ELEMENTS[row.el] && ELEMENTS[row.el].color) || WHITE
+      setRect(slot.dot, { x: 30, y: slot.y + 3, w: 14, h: 14, radius: 7, color })
+      setVisible(slot.dot, true)
+      setTextStyle(slot.text, { x: 50, y: slot.y, w: W - 88, h: 20, align_h: align.LEFT, align_v: align.CENTER_V, text_size: 15, color: WHITE })
+      setText(slot.text, row.text)
+      setVisible(slot.text, true)
+    } else {
+      setVisible(slot.dot, false)
+      setVisible(slot.text, false)
+    }
+  }
+
+  const trackH = g.viewH - 8
+  const total = g.rows.length
+  const visible = g.pool.length
+  const thumbH = total > visible ? Math.max(24, Math.round(trackH * visible / total)) : trackH
+  const ty = g.viewY + 4 + (g.max ? Math.round(g.scroll / g.max * (trackH - thumbH)) : 0)
+  setRect(g.thumb, { y: ty, h: thumbH })
+}
+
+function animateGuideScroll(deltaLines) {
+  const g = screen.guide
+  if (!g || !g.max) return
+  scrollAnim = { from: g.scroll, to: clamp(g.scroll + deltaLines, 0, g.max), t0: now() }
+}
+
+function tickScroll(t) {
+  if (slide || screen.name !== 'guide' || !scrollAnim) return
+  const p = clamp((t - scrollAnim.t0) / 220, 0, 1)
+  setGuideScroll(scrollAnim.from + (scrollAnim.to - scrollAnim.from) * ease(p))
+  if (p >= 1) scrollAnim = null
+}
+
+function buildGuide() {
+  const viewY = 44
+  const viewH = 312
+  const lineH = 20
+
+  mkTextS(34, 2, W - 68, 38, 27, GOLD, align.CENTER_H, 'GUIDE')
+
+  const rows = buildGuideRows()
+  const poolSize = Math.floor(viewH / lineH)
+  const maxStart = Math.max(0, rows.length - poolSize)
+  const g = {
+    scroll: 0, // pixels
+    max: maxStart * lineH, // pixels
+    maxStart,
+    viewY,
+    viewH,
+    lineH,
+    rows,
+    pool: []
+  }
+  screen.guide = g
+
+  // Fixed slots; no repositioning during scroll, only content/style.
+  for (let i = 0; i < poolSize; i++) {
+    const y = viewY + i * lineH
+    const dot = mkRect(30, y + 3, 14, 14, WHITE, 7)
+    setVisible(dot, false)
+    const text = mkText(28, y, W - 66, lineH, 15, WHITE, align.LEFT, '', align.CENTER_V)
+    setVisible(text, false)
+    g.pool.push({ dot, text, y })
+  }
+
+  g.track = mkRect(W - 12, viewY + 4, 4, viewH - 8, INK, 2)
+  g.thumb = mkRect(W - 12, viewY + 4, 4, viewH - 8, GOLD, 2)
+  mkRect(0, viewY + viewH, W, H - (viewY + viewH), BG, 0)
+  mkArtButton(Math.round(CX - artSize('btn_back_s')[0] / 2), 374, 'btn_back_s', () => gotoBack('den'))
+
+  setGuideScroll(0)
 }
 
 const SCREENS = {
@@ -3075,16 +3354,36 @@ const SCREENS = {
 // A tap fires when the finger lifts (so a swipe that starts on a button does
 // not press it). Watches that never report finger-lift fall back to firing
 // 350 ms after touch-down. The catch screen fires on touch-down for timing.
+// On the guide, MOVE events drag the document and swipes scroll a chunk.
 let down = null
 let upSeen = false
 
 function onDown(e) {
   try {
+    if (slide) return
     if (!e || typeof e.x !== 'number') return
+    upSeen = false
     if (screen.instant) return fireTap(e.x, e.y)
-    down = { x: e.x, y: e.y, t: now(), scr: screen }
+    down = { x: e.x, y: e.y, t: now(), scr: screen, dragged: false, scroll0: screen.guide ? screen.guide.scroll : 0 }
   } catch (err) {
     showError('tap', err)
+  }
+}
+function onMove(e) {
+  try {
+    if (slide || !down || down.scr !== screen) return
+    if (screen.name !== 'guide' || !e) return
+    const px = typeof e.x === 'number' ? e.x : e.pos_x
+    const py = typeof e.y === 'number' ? e.y : e.pos_y
+    if (typeof px !== 'number' || typeof py !== 'number') return
+    const dy = down.y - py
+    if (Math.abs(dy) < 4) return
+    down.dragged = true
+    lastDrag = now()
+    scrollAnim = null
+    setGuideScroll(down.scroll0 + dy)
+  } catch (err) {
+    showError('drag', err)
   }
 }
 function onUp(e) {
@@ -3093,6 +3392,13 @@ function onUp(e) {
     const d = down
     down = null
     if (!d || d.scr !== screen) return
+    if (d.dragged) {
+      // a small flick carries on after the finger lifts
+      const dt = Math.max(1, now() - d.t)
+      const v = (screen.guide.scroll - d.scroll0) / dt // px/ms
+      animateGuideScroll(v * 180)
+      return
+    }
     if (e && typeof e.x === 'number' && (Math.abs(e.x - d.x) > 40 || Math.abs(e.y - d.y) > 40)) return
     fireTap(d.x, d.y)
   } catch (err) {
@@ -3100,6 +3406,7 @@ function onUp(e) {
   }
 }
 function fireTap(x, y) {
+  if (slide) return
   // the battle stats overlay: any tap closes it
   if (screen.name === 'battle' && screen.ui.stats && screen.ui.stats.open) {
     closeStats()
@@ -3122,25 +3429,26 @@ function fireTap(x, y) {
 
 function onSwipe(ev) {
   down = null
-  // the guide: swipe left on the den opens it, then left / right turns pages
+  if (slide) return true
+  if (now() - lastDrag < 250) return true // a drag is not also a swipe
+  // the guide scrolls continuously; RIGHT goes back
   if (screen.name === 'guide') {
-    if (ev === GESTURE_LEFT) goto('guide', screen.arg + 1)
-    else if (ev === GESTURE_RIGHT) {
-      if (screen.arg > 0) goto('guide', screen.arg - 1)
-      else home()
-    } else return false
+    if (ev === GESTURE_RIGHT) gotoBack('den')
+    else if (ev === GESTURE_UP || ev === GESTURE_LEFT) animateGuideScroll(220)
+    else if (ev === GESTURE_DOWN) animateGuideScroll(-220)
+    else return false
     return true
   }
   if (ev === GESTURE_LEFT && screen.name === 'den') {
-    goto('guide', 0)
+    goto('guide', 0, 1)
     return true
   }
   if (ev === GESTURE_RIGHT && screen.name === 'den') {
-    goto('boss')
+    goto('boss', undefined, -1)
     return true
   }
   if (ev === GESTURE_UP && screen.name === 'den') {
-    goto('settings')
+    goto('settings', undefined, 1, 'y')
     return true
   }
   if (screen.name === 'settings' && (ev === GESTURE_RIGHT || ev === GESTURE_DOWN)) {
@@ -3154,7 +3462,7 @@ function onSwipe(ev) {
     return true
   }
   if (n === 'detail') {
-    goto('team', screen.arg.page)
+    gotoBack('team', screen.arg.page)
     return true
   }
   if (n === 'feed') {
@@ -3169,10 +3477,15 @@ function onSwipe(ev) {
 function tick() {
   try {
     const t = now()
+    tickSlide(t)
+    tickScroll(t)
     if (down && !upSeen && t - down.t > 350) {
       const d = down
       down = null
-      if (d.scr === screen) fireTap(d.x, d.y)
+      if (d.scr === screen && d.dragged) {
+        const dt = Math.max(1, t - d.t)
+        animateGuideScroll((screen.guide.scroll - d.scroll0) / dt * 220)
+      } else if (d.scr === screen) fireTap(d.x, d.y)
     }
     if (screen.toastUntil && t > screen.toastUntil) {
       screen.toastUntil = 0
@@ -3189,8 +3502,10 @@ function tick() {
       passTime(t - lastMinute, n === 'battle' || n === 'catch') // no healing mid-fight
       lastMinute = t
     }
-    if (n === 'den') denIdle(t)
-    if (n === 'den' && t % 500 < TICK_MS) updateFacing()
+    // While a slide is running, denIdle would reset the lead's position and
+    // make it snap. Leave the moving screen alone until the slide finishes.
+    if (n === 'den' && !slide) denIdle(t)
+    if (n === 'den' && !slide && t % 500 < TICK_MS) updateFacing()
     if (n === 'den' && t - lastSensor >= 5000) {
       lastSensor = t
       updateSteps()
@@ -3198,7 +3513,7 @@ function tick() {
         lastHeart = t
         updateHeart()
       }
-      updateDen()
+      if (!slide) updateDen()
     }
     if (t - lastSave >= SAVE_EVERY_MS) save()
   } catch (e) {
@@ -3230,7 +3545,10 @@ Page({
       }
       step = 'load'
       // forget any screen left over from an earlier run of this page
-      screen = { name: '', ws: [], taps: [], ui: {} }
+      screen = { name: '', ws: [], poss: [], taps: [], ui: {}, root: null }
+      slide = null
+      scrollAnim = null
+      lastDrag = 0
       notices.length = 0
       weatherCache = { t: 0, kind: null }
       storage = new LocalStorage()
