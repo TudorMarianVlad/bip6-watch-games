@@ -6,15 +6,15 @@ Nine original games for the **Amazfit Bip 6** smartwatch, written in JavaScript 
 
 | Game | Genre | Watch features used |
 |---|---|---|
-| <img src="docs/icons/tap-quest.png" width="64"> **Tap Quest** | Idle clicker RPG: hire heroes, earn gold while away | Step counter, offline progress |
-| <img src="docs/icons/wristlings.png" width="64"> **Wristlings** | Creature collecting and turn-based battles: 106 creatures (including holiday ones and rares), three-stage evolution lines, legends, step eggs, a weekly boss, book badges, status effects and battle weather | Steps, sleep, heart rate, calories, PAI, weather, compass, watch widget |
-| <img src="docs/icons/depth-crawl.png" width="64"> **Depth Crawl** | First-person roguelite dungeon crawler | Step counter |
-| <img src="docs/icons/neon-horizon.png" width="64"> **Neon Horizon** | Synthwave night racer | Step counter |
-| <img src="docs/icons/stick-duel.png" width="64"> **Stick Duel** | Swipe-controlled stickman fighter | Swipe gestures |
-| <img src="docs/icons/tilt-arena.png" width="64"> **Tilt Arena** | Arena survival, steered by tilting your wrist | Accelerometer |
-| <img src="docs/icons/orbit-pop.png" width="64"> **Orbit Pop** | Marble shooter | Touch aiming |
-| <img src="docs/icons/mine-patrol.png" width="64"> **Mine Patrol** | Mine-sweeping puzzle | Best-time saves |
-| <img src="docs/icons/alchemist-cauldron.png" width="64"> **Alchemist's Cauldron** | Merge puzzle: brew ingredients up to the Philosopher's Stone | Swipe gestures, step counter |
+| <img src="docs/icons/tap-quest.png" width="64"><br>**Tap Quest** | Idle clicker RPG: hire heroes, earn gold while away | Step counter, offline progress |
+| <img src="docs/icons/wristlings.png" width="64"><br>**Wristlings** | Creature collecting and turn-based battles: 106 creatures (including holiday ones and rares), three-stage evolution lines, legends, step eggs, a weekly boss, book badges, status effects and battle weather | Steps, sleep, heart rate, calories, PAI, weather, compass, watch widget |
+| <img src="docs/icons/depth-crawl.png" width="64"><br>**Depth Crawl** | First-person roguelite dungeon crawler | Step counter |
+| <img src="docs/icons/neon-horizon.png" width="64"><br>**Neon Horizon** | Synthwave night racer | Step counter |
+| <img src="docs/icons/stick-duel.png" width="64"><br>**Stick Duel** | Swipe-controlled stickman fighter | Swipe gestures |
+| <img src="docs/icons/tilt-arena.png" width="64"><br>**Tilt Arena** | Arena survival, steered by tilting your wrist | Accelerometer |
+| <img src="docs/icons/orbit-pop.png" width="64"><br>**Orbit Pop** | Marble shooter | Touch aiming |
+| <img src="docs/icons/mine-patrol.png" width="64"><br>**Mine Patrol** | Mine-sweeping puzzle | Best-time saves |
+| <img src="docs/icons/alchemist-cauldron.png" width="64"><br>**Alchemist's Cauldron** | Merge puzzle: brew ingredients up to the Philosopher's Stone | Swipe gestures, step counter |
 
 ## Highlights
 
