@@ -26,7 +26,7 @@
 // Screens are rebuilt from scratch when you move between them (one touch layer
 // on top catches every tap), and only changed values are pushed to widgets.
 
-import { createWidget, deleteWidget, widget, event, prop, align, text_style, setStatusBarVisible } from '@zos/ui'
+import { createWidget, deleteWidget, widget, event, prop, align, text_style, setStatusBarVisible, getTextLayout } from '@zos/ui'
 import { getDeviceInfo } from '@zos/device'
 import { LocalStorage } from '@zos/storage'
 import { Time, Step, HeartRate, Sleep, Weather, Calorie, Pai, Battery, Compass, Vibrator, VIBRATOR_SCENE_SHORT_LIGHT, VIBRATOR_SCENE_SHORT_STRONG, VIBRATOR_SCENE_SHORT_MIDDLE } from '@zos/sensor'
@@ -38,8 +38,6 @@ import { ELEMENTS, SHORT, STRONG, MOVES, SPECIES, BOOK, STARTERS, BERRIES, effec
 const TICK_MS = 50
 const SLIDE_MS = 230 // menu transition: quick enough to stay snappy
 const SLIDE_NAMES = { den: 1, guide: 1, settings: 1, team: 1, detail: 1, feed: 1, book: 1, boss: 1 }
-// these screens don't need a synchronous save on entry; the 10s loop still covers them
-const READ_ONLY_SCREENS = { guide: 1, book: 1, boss: 1, team: 1, detail: 1 }
 const STEPS_PER_TRACK = 300
 const TRACK_CAP = 6
 const FREE_TRACK_MIN = 120 // a free track every 2 hours, so you can play without walking
@@ -1123,7 +1121,7 @@ function buildScreen(name, arg, offset, axis) {
     if (axis === 'y') moveLayer(screen, 0, offset)
     else moveLayer(screen, offset, 0)
   }
-  if (!READ_ONLY_SCREENS[name]) save()
+  save()
 }
 
 function goto(name, arg, dir, axis) {
@@ -2345,7 +2343,7 @@ function enemyFainted() {
   const p = activeMon()
   p.joy = clamp(p.joy + 3, 0, 100)
   const msgs = gainXp(p, xp)
-  for (const m of partyMons()) if (m !== p && m.hp >= 1) msgs.push(...gainXp(m, Math.floor(xp / 2)).filter((x) => x.indexOf(' XP') < 0))
+  for (const m of partyMons()) if (m !== p && m.hp >= 1) msgs.push(...gainXp(m, Math.floor(xp / 3)).filter((x) => x.indexOf(' XP') < 0))
   for (const msg of msgs) say(msg, null, 750)
   if (Math.random() < BERRY_DROP) {
     const b = Math.random() < 0.15 ? 'gold' : pick(['red', 'blue', 'green'])
@@ -2684,7 +2682,7 @@ function buildDetail(arg) {
   row(230, 'XP', m.lv >= MAX_LV ? 1 : m.xp / xpNext(m.lv), BLUE, m.lv >= MAX_LV ? 'MAX' : Math.floor((m.xp / xpNext(m.lv)) * 100) + '%')
   row(248, 'FOOD', m.full / 100, ORANGE, Math.round(m.full) + '')
   row(266, 'JOY', m.joy / 100, PINK, Math.round(m.joy) + '')
-  mkText(24, 276, W - 48, 22, 16, WHITE, align.CENTER_H, 'ATK ' + st2.atk + '   DEF ' + st2.def + '   SPD ' + st2.spd + (s.evo ? '   evolves Lv ' + s.evoLv + (s.evoPai ? ' + ' + s.evoPai + ' PAI' : '') + (s.evoSteps ? ' + ' + fmt(s.evoSteps) + ' steps' : '') : ''))
+  mkText(24, 276, W - 48, 22, 16, WHITE, align.CENTER_H, 'ATK ' + st2.atk + '   DEF ' + st2.def + '   SPD ' + st2.spd + (s.evo ? '   evolves Lv ' + s.evoLv + (s.evoPai ? ' + ' + s.evoPai + ' PAI' : '') : ''))
   mkText(24, 296, W - 48, 22, 16, LILAC, align.CENTER_H, movesOf(m).map((id) => MOVES[id].name).join('  /  '))
   const slot = st.party.indexOf(m.id)
   mkArtButton(34, 322, slot === 0 ? 'btn_leader' : 'btn_lead', () => {
@@ -2692,7 +2690,6 @@ function buildDetail(arg) {
     st.party = st.party.filter((x) => x !== m.id)
     st.party.unshift(m.id)
     if (st.party.length > PARTY_MAX) st.party.pop()
-    save() // detail is read-only-screen cached, so persist party edits here
     goto('detail', arg, 1)
   })
   mkArtButton(143, 322, slot >= 0 ? 'btn_bench' : 'btn_join', () => {
@@ -2703,7 +2700,6 @@ function buildDetail(arg) {
       if (st.party.length >= PARTY_MAX) return toast('Party is full (3). BENCH one first', GOLD)
       st.party.push(m.id)
     }
-    save() // detail is read-only-screen cached, so persist party edits here
     goto('detail', arg, 1)
   })
   mkArtButton(252, 322, 'btn_feed_s', () => goto('feed', { id: m.id, back: 'detail', page: arg.page }, 1))
@@ -3186,7 +3182,33 @@ function guidePages() {
   return pages
 }
 
-// (removed: the old wrapped-text helpers; the pooled guide scroller lays out its own rows)
+// Ask the UI engine for the real wrapped height so sections stack seamlessly.
+function textHeight(text, w, size, min) {
+  try {
+    const r = getTextLayout(String(text), { text_size: size, text_width: w, wrapped: 1 })
+    if (r && typeof r.height === 'number' && r.height > 0) return Math.ceil(r.height) + 4
+  } catch (e) {
+    // fall through to the estimate
+  }
+  const s = fitSize(text, w, 100000, size, min)
+  const perLine = Math.max(1, Math.floor(w / (s * CHAR_W)))
+  let lines = 0
+  for (const para of String(text).split('\n')) lines += Math.max(1, Math.ceil(para.length / perLine))
+  return Math.max(24, Math.ceil(lines * s * LINE_H) + 6)
+}
+function chartText() {
+  const lines = Object.keys(ELEMENTS).map((el) => ELEMENTS[el].name + ' beats ' + STRONG[el].map((x) => ELEMENTS[x].name).join(' '))
+  lines.push('', 'Beats = x' + SUPER_MULT + ' damage. The same element, or one that beats yours = x' + WEAK_MULT)
+  return lines.join('\n')
+}
+function guideText() {
+  const parts = []
+  for (const p of guidePages()) {
+    parts.push(p.title)
+    parts.push(p.chart ? chartText() : p.text)
+  }
+  return parts.join('\n\n')
+}
 
 // Guide: fixed chrome + fixed row pool. Only row content/style changes on scroll;
 // no background/title/button/widget movement.
@@ -3219,9 +3241,8 @@ function buildGuideRows() {
   const pushText = (text, color) => {
     for (const line of guideWrap(text, W - 66, 15)) rows.push({ type: 'text', text: line, color: color || WHITE })
   }
-  const pages = guidePages()
-  for (let i = 0; i < pages.length; i++) {
-    const p = pages[i]
+  for (let i = 0; i < guidePages().length; i++) {
+    const p = guidePages()[i]
     if (i > 0) pushSpacer(1)
     pushTitle(p.title)
     if (p.chart) {
@@ -3240,68 +3261,49 @@ function buildGuideRows() {
   return rows
 }
 
-// the guide copy is static for the session: wrap it once, not on every open
-let guideRowsCache = null
-function getGuideRows() {
-  if (!guideRowsCache) guideRowsCache = buildGuideRows()
-  return guideRowsCache
-}
+function setGuideScroll(v) {
+  const g = screen.guide
+  if (!g) return
+  g.scroll = clamp(Math.round(v), 0, g.max)
+  const start = g.lineH ? clamp(Math.floor(g.scroll / g.lineH), 0, g.maxStart) : 0
 
-function guideLineStart(g, scroll) {
-  return g.lineH ? clamp(Math.floor(scroll / g.lineH), 0, g.maxStart) : 0
-}
+  for (let i = 0; i < g.pool.length; i++) {
+    const slot = g.pool[i]
+    const row = g.rows[start + i]
+    if (!row) {
+      setVisible(slot.dot, false)
+      setVisible(slot.text, false)
+      continue
+    }
+    if (row.type === 'title') {
+      setVisible(slot.dot, false)
+      setTextStyle(slot.text, { x: 28, y: slot.y, w: W - 66, h: 20, align_h: align.CENTER_H, align_v: align.CENTER_V, text_size: 19, color: GOLD })
+      setText(slot.text, row.text)
+      setVisible(slot.text, true)
+    } else if (row.type === 'text') {
+      setVisible(slot.dot, false)
+      setTextStyle(slot.text, { x: 28, y: slot.y, w: W - 66, h: 20, align_h: align.LEFT, align_v: align.CENTER_V, text_size: 15, color: row.color || WHITE })
+      setText(slot.text, row.text)
+      setVisible(slot.text, true)
+    } else if (row.type === 'element') {
+      const color = (ELEMENTS[row.el] && ELEMENTS[row.el].color) || WHITE
+      setRect(slot.dot, { x: 30, y: slot.y + 3, w: 14, h: 14, radius: 7, color })
+      setVisible(slot.dot, true)
+      setTextStyle(slot.text, { x: 50, y: slot.y, w: W - 88, h: 20, align_h: align.LEFT, align_v: align.CENTER_V, text_size: 15, color: WHITE })
+      setText(slot.text, row.text)
+      setVisible(slot.text, true)
+    } else {
+      setVisible(slot.dot, false)
+      setVisible(slot.text, false)
+    }
+  }
 
-function updateGuideThumb(g) {
   const trackH = g.viewH - 8
   const total = g.rows.length
   const visible = g.pool.length
   const thumbH = total > visible ? Math.max(24, Math.round(trackH * visible / total)) : trackH
   const ty = g.viewY + 4 + (g.max ? Math.round(g.scroll / g.max * (trackH - thumbH)) : 0)
   setRect(g.thumb, { y: ty, h: thumbH })
-}
-
-function setGuideScroll(v) {
-  const g = screen.guide
-  if (!g) return
-  g.scroll = clamp(Math.round(v), 0, g.max)
-  const start = guideLineStart(g, g.scroll)
-  const rowsChanged = start !== g.lastStart
-  g.lastStart = start
-
-  // Rows are line-snapped: sub-line movement only moves the thumb.
-  // Rewriting all 15 text slots on every animation frame is what stalls.
-  // Text slots stay visible: clearing a spacer with '' avoids native VISIBLE
-  // toggles, and style + text go out together in one prop.MORE call.
-  if (rowsChanged) {
-    for (let i = 0; i < g.pool.length; i++) {
-      const slot = g.pool[i]
-      const row = g.rows[start + i]
-      if (!row || row.type === 'spacer') {
-        setVisible(slot.dot, false)
-        setText(slot.text, '')
-        // keep the style blob in sync so the next identical row still draws
-        if (slot.text.tp) slot.text.tp.text = ''
-        continue
-      }
-      if (row.type === 'title') {
-        setVisible(slot.dot, false)
-        setTextStyle(slot.text, { x: 28, y: slot.y, w: W - 66, h: 20, align_h: align.CENTER_H, align_v: align.CENTER_V, text_size: 19, color: GOLD, text: row.text })
-        slot.text.t = row.text
-      } else if (row.type === 'text') {
-        setVisible(slot.dot, false)
-        setTextStyle(slot.text, { x: 28, y: slot.y, w: W - 66, h: 20, align_h: align.LEFT, align_v: align.CENTER_V, text_size: 15, color: row.color || WHITE, text: row.text })
-        slot.text.t = row.text
-      } else if (row.type === 'element') {
-        const color = (ELEMENTS[row.el] && ELEMENTS[row.el].color) || WHITE
-        setRect(slot.dot, { x: 30, y: slot.y + 3, w: 14, h: 14, radius: 7, color })
-        setVisible(slot.dot, true)
-        setTextStyle(slot.text, { x: 50, y: slot.y, w: W - 88, h: 20, align_h: align.LEFT, align_v: align.CENTER_V, text_size: 15, color: WHITE, text: row.text })
-        slot.text.t = row.text
-      }
-    }
-  }
-
-  updateGuideThumb(g)
 }
 
 function animateGuideScroll(deltaLines) {
@@ -3324,7 +3326,7 @@ function buildGuide() {
 
   mkTextS(34, 2, W - 68, 38, 27, GOLD, align.CENTER_H, 'GUIDE')
 
-  const rows = getGuideRows()
+  const rows = buildGuideRows()
   const poolSize = Math.floor(viewH / lineH)
   const maxStart = Math.max(0, rows.length - poolSize)
   const g = {
@@ -3335,31 +3337,17 @@ function buildGuide() {
     viewH,
     lineH,
     rows,
-    pool: [],
-    lastStart: 0 // slots are created with rows 0..poolSize-1 already in place
+    pool: []
   }
   screen.guide = g
 
-  // Create every slot with the correct first-page content/style, so opening
-  // the guide does not immediately rewrite all 15 rows with setGuideScroll().
+  // Fixed slots; no repositioning during scroll, only content/style.
   for (let i = 0; i < poolSize; i++) {
     const y = viewY + i * lineH
-    const row = rows[i]
-    const isTitle = !!(row && row.type === 'title')
-    const isText = !!(row && row.type === 'text')
-    const isElement = !!(row && row.type === 'element')
-    const dotColor = isElement ? ((ELEMENTS[row.el] && ELEMENTS[row.el].color) || WHITE) : WHITE
-    const dot = mkRect(30, y + 3, 14, 14, dotColor, 7)
-    if (!isElement) setVisible(dot, false)
-
-    const tx = isElement ? 50 : 28
-    const tw = isElement ? W - 88 : W - 66
-    const size = isTitle ? 19 : 15
-    const color = isTitle ? GOLD : isText ? (row.color || WHITE) : WHITE
-    const alignH = isTitle ? align.CENTER_H : align.LEFT
-    const txt = (isTitle || isText || isElement) ? row.text : ''
-    // keep every text slot visible; spacers are cleared with '' when scrolling
-    const text = mkText(tx, y, tw, lineH, size, color, alignH, txt, align.CENTER_V)
+    const dot = mkRect(30, y + 3, 14, 14, WHITE, 7)
+    setVisible(dot, false)
+    const text = mkText(28, y, W - 66, lineH, 15, WHITE, align.LEFT, '', align.CENTER_V)
+    setVisible(text, false)
     g.pool.push({ dot, text, y })
   }
 
@@ -3368,7 +3356,7 @@ function buildGuide() {
   mkRect(0, viewY + viewH, W, H - (viewY + viewH), BG, 0)
   mkArtButton(Math.round(CX - artSize('btn_back_s')[0] / 2), 374, 'btn_back_s', () => gotoBack('den'))
 
-  updateGuideThumb(g)
+  setGuideScroll(0)
 }
 
 const SCREENS = {
@@ -3394,22 +3382,14 @@ const SCREENS = {
 // On the guide, MOVE events drag the document and swipes scroll a chunk.
 let down = null
 let upSeen = false
-let lastMoveAt = 0
 
 function onDown(e) {
   try {
     if (slide) return
     if (!e || typeof e.x !== 'number') return
     upSeen = false
-    lastMoveAt = 0
     if (screen.instant) return fireTap(e.x, e.y)
-    const t = now()
-    down = {
-      x: e.x, y: e.y, t,
-      lastY: e.y, lastT: t, vy: 0,
-      scr: screen, dragged: false,
-      scroll0: screen.guide ? screen.guide.scroll : 0
-    }
+    down = { x: e.x, y: e.y, t: now(), scr: screen, dragged: false, scroll0: screen.guide ? screen.guide.scroll : 0 }
   } catch (err) {
     showError('tap', err)
   }
@@ -3418,30 +3398,15 @@ function onMove(e) {
   try {
     if (slide || !down || down.scr !== screen) return
     if (screen.name !== 'guide' || !e) return
-    const t = now()
-    if (t - lastMoveAt < 40) return // cap drag redraws to ~25 fps
-    lastMoveAt = t
     const px = typeof e.x === 'number' ? e.x : e.pos_x
     const py = typeof e.y === 'number' ? e.y : e.pos_y
-    if (typeof py !== 'number') return
+    if (typeof px !== 'number' || typeof py !== 'number') return
     const dy = down.y - py
-    const dx = typeof px === 'number' ? Math.abs(px - down.x) : 0
-    // lock new drags to vertical so a horizontal back-swipe still reaches onSwipe()
-    if (!down.dragged && (Math.abs(dy) < 8 || Math.abs(dy) < dx)) return
-    const dt = Math.max(1, t - down.lastT)
-    down.vy = (down.lastY - py) / dt // px/ms, positive scrolls down the guide
-    down.lastY = py
-    down.lastT = t
+    if (Math.abs(dy) < 4) return
     down.dragged = true
-    lastDrag = t
+    lastDrag = now()
     scrollAnim = null
-    const g = screen.guide
-    const want = down.scroll0 + dy
-    if (guideLineStart(g, want) !== g.lastStart) setGuideScroll(want)
-    else {
-      g.scroll = clamp(Math.round(want), 0, g.max)
-      updateGuideThumb(g)
-    }
+    setGuideScroll(down.scroll0 + dy)
   } catch (err) {
     showError('drag', err)
   }
@@ -3453,8 +3418,10 @@ function onUp(e) {
     down = null
     if (!d || d.scr !== screen) return
     if (d.dragged) {
-      // coast only when the finger was still moving just before lift
-      if (now() - d.lastT < 120 && Math.abs(d.vy) > 0.15) animateGuideScroll(d.vy * 180)
+      // a small flick carries on after the finger lifts
+      const dt = Math.max(1, now() - d.t)
+      const v = (screen.guide.scroll - d.scroll0) / dt // px/ms
+      animateGuideScroll(v * 180)
       return
     }
     if (e && typeof e.x === 'number' && (Math.abs(e.x - d.x) > 40 || Math.abs(e.y - d.y) > 40)) return
@@ -3513,20 +3480,9 @@ function onSwipe(ev) {
     home()
     return true
   }
-  // the boss screen was entered by swiping right on the den, so either
-  // horizontal swipe works as the way back
-  if (screen.name === 'boss' && (ev === GESTURE_LEFT || ev === GESTURE_RIGHT)) {
-    home()
-    return true
-  }
   if (ev !== GESTURE_RIGHT) return false
   const n = screen.name
-  // a creature popup lives inside the book screen: swipe closes the popup only
-  if (n === 'book' && screen.arg && typeof screen.arg === 'object' && screen.arg.info) {
-    gotoBack('book', screen.arg.page)
-    return true
-  }
-  if (n === 'team' || n === 'book') {
+  if (n === 'team' || n === 'book' || n === 'boss') {
     home()
     return true
   }
@@ -3535,9 +3491,7 @@ function onSwipe(ev) {
     return true
   }
   if (n === 'feed') {
-    // feed can be opened from a creature's detail page: return there if so
-    if (screen.arg && screen.arg.back === 'detail') gotoBack('detail', { id: screen.arg.id, page: screen.arg.page })
-    else home()
+    home()
     return true
   }
   // in battle / catch / evolve the swipe is blocked so you cannot leave by accident
@@ -3550,12 +3504,13 @@ function tick() {
     const t = now()
     tickSlide(t)
     tickScroll(t)
-    // only fire the fallback tap when the finger has not started dragging;
-    // an active guide drag must not be cancelled after 350 ms
-    if (down && !upSeen && t - (down.dragged ? lastDrag : down.t) > 350) {
+    if (down && !upSeen && t - down.t > 350) {
       const d = down
       down = null
-      if (d.scr === screen && !d.dragged) fireTap(d.x, d.y)
+      if (d.scr === screen && d.dragged) {
+        const dt = Math.max(1, t - d.t)
+        animateGuideScroll((screen.guide.scroll - d.scroll0) / dt * 220)
+      } else if (d.scr === screen) fireTap(d.x, d.y)
     }
     if (screen.toastUntil && t > screen.toastUntil) {
       screen.toastUntil = 0
