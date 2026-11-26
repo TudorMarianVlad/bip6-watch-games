@@ -4,72 +4,17 @@ Nine original games for the **Amazfit Bip 6** smartwatch, written in JavaScript 
 
 **[▶ Play them in your browser](https://tudormarianvlad.github.io/bip6-watch-games/)**: browser builds that fake the watch APIs, so you can try every game without a watch.
 
-<table>
-<thead>
-<tr>
-<th width="80"></th>
-<th>Game</th>
-<th>Genre</th>
-<th>Watch features used</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td width="80" align="center"><img src="docs/icons/tap-quest.png" width="64"></td>
-<td><strong>Tap Quest</strong></td>
-<td>Idle clicker RPG: hire heroes, earn gold while away</td>
-<td>Step counter, offline progress</td>
-</tr>
-<tr>
-<td width="80" align="center"><img src="docs/icons/wristlings.png" width="64"></td>
-<td><strong>Wristlings</strong></td>
-<td>Creature collecting and turn-based battles: 106 creatures (including holiday ones and rares), three-stage evolution lines, legends, step eggs, a weekly boss, book badges, status effects and battle weather</td>
-<td>Steps, sleep, heart rate, calories, PAI, weather, compass, watch widget</td>
-</tr>
-<tr>
-<td width="80" align="center"><img src="docs/icons/depth-crawl.png" width="64"></td>
-<td><strong>Depth Crawl</strong></td>
-<td>First-person roguelite dungeon crawler</td>
-<td>Step counter</td>
-</tr>
-<tr>
-<td width="80" align="center"><img src="docs/icons/neon-horizon.png" width="64"></td>
-<td><strong>Neon Horizon</strong></td>
-<td>Synthwave night racer</td>
-<td>Step counter</td>
-</tr>
-<tr>
-<td width="80" align="center"><img src="docs/icons/stick-duel.png" width="64"></td>
-<td><strong>Stick Duel</strong></td>
-<td>Swipe-controlled stickman fighter</td>
-<td>Swipe gestures</td>
-</tr>
-<tr>
-<td width="80" align="center"><img src="docs/icons/tilt-arena.png" width="64"></td>
-<td><strong>Tilt Arena</strong></td>
-<td>Arena survival, steered by tilting your wrist</td>
-<td>Accelerometer</td>
-</tr>
-<tr>
-<td width="80" align="center"><img src="docs/icons/orbit-pop.png" width="64"></td>
-<td><strong>Orbit Pop</strong></td>
-<td>Marble shooter</td>
-<td>Touch aiming</td>
-</tr>
-<tr>
-<td width="80" align="center"><img src="docs/icons/mine-patrol.png" width="64"></td>
-<td><strong>Mine Patrol</strong></td>
-<td>Mine-sweeping puzzle</td>
-<td>Best-time saves</td>
-</tr>
-<tr>
-<td width="80" align="center"><img src="docs/icons/alchemist-cauldron.png" width="64"></td>
-<td><strong>Alchemist's Cauldron</strong></td>
-<td>Merge puzzle: brew ingredients up to the Philosopher's Stone</td>
-<td>Swipe gestures, step counter</td>
-</tr>
-</tbody>
-</table>
+| Game | Genre | Watch features used |
+|---|---|---|
+| <img src="docs/icons/tap-quest.png" width="64"> **Tap Quest** | Idle clicker RPG: hire heroes, earn gold while away | Step counter, offline progress |
+| <img src="docs/icons/wristlings.png" width="64"> **Wristlings** | Creature collecting and turn-based battles: 106 creatures (including holiday ones and rares), three-stage evolution lines, legends, step eggs, a weekly boss, book badges, status effects and battle weather | Steps, sleep, heart rate, calories, PAI, weather, compass, watch widget |
+| <img src="docs/icons/depth-crawl.png" width="64"> **Depth Crawl** | First-person roguelite dungeon crawler | Step counter |
+| <img src="docs/icons/neon-horizon.png" width="64"> **Neon Horizon** | Synthwave night racer | Step counter |
+| <img src="docs/icons/stick-duel.png" width="64"> **Stick Duel** | Swipe-controlled stickman fighter | Swipe gestures |
+| <img src="docs/icons/tilt-arena.png" width="64"> **Tilt Arena** | Arena survival, steered by tilting your wrist | Accelerometer |
+| <img src="docs/icons/orbit-pop.png" width="64"> **Orbit Pop** | Marble shooter | Touch aiming |
+| <img src="docs/icons/mine-patrol.png" width="64"> **Mine Patrol** | Mine-sweeping puzzle | Best-time saves |
+| <img src="docs/icons/alchemist-cauldron.png" width="64"> **Alchemist's Cauldron** | Merge puzzle: brew ingredients up to the Philosopher's Stone | Swipe gestures, step counter |
 
 ## Highlights
 
