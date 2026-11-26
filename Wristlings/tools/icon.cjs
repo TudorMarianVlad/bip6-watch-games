@@ -64,14 +64,7 @@ function picture(file, h, cx, y0) {
 picture('tools/icon_gemini.png', S, C, 0)
 
 const out = new Uint8Array(S * S * 4)
-// The Gemini source is pale, so the round icon nearly disappears at the 48 px
-// size used in the README table. Darken the artwork while keeping the sunrise
-// design; alpha is left alone so the circular edge stays clean.
-const SHADE = 0.75
-for (let i = 0; i < out.length; i++) {
-  if (i % 4 === 3) out[i] = Math.round(px[i] * 255)
-  else out[i] = Math.round(px[i] * SHADE)
-}
+for (let i = 0; i < out.length; i++) out[i] = Math.round(i % 4 === 3 ? px[i] * 255 : px[i])
 const png = encodePng(S, S, out)
 for (const p of ['default.s', 'default.r', 'default.b']) fs.writeFileSync(path.join(ROOT, 'assets', p, 'icon.png'), png)
 console.log('wrote icon.png into assets/default.{s,r,b}')
