@@ -31,6 +31,19 @@
           "pages": [
             "page/index"
           ]
+        },
+        "secondary-widget": {
+          "widgets": [
+            {
+              "path": "secondary-widget/index",
+              "icon": "icon.png",
+              "preview": "widget-preview.png",
+              "name": "Tap Quest",
+              "runtime": {
+                "type": "js"
+              }
+            }
+          ]
         }
       },
       "platforms": [

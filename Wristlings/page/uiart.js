@@ -15,6 +15,10 @@ export const ART = {
   "btn_book":[76,50],
   "btn_train":[76,50],
   "btn_train_off":[76,50],
+  "ico_egg":[44,52],
+  "ico_egg_ready":[44,52],
+  "btn_fight":[300,56],
+  "btn_fight_off":[300,56],
   "btn_move_fire":[110,58],
   "btn_move_water":[110,58],
   "btn_move_grass":[110,58],
@@ -23,6 +27,7 @@ export const ART = {
   "btn_move_air":[110,58],
   "btn_move_earth":[110,58],
   "btn_move_shadow":[110,58],
+  "btn_move_light":[110,58],
   "btn_move_none":[110,58],
   "btn_move_off":[110,58],
   "btn_catch":[104,50],
@@ -71,6 +76,7 @@ export const ART = {
   "t_evolution":[219,39],
   "t_stats":[121,37],
   "t_settings":[206,41],
+  "t_boss":[228,33],
   "t_perfect":[224,47],
   "t_good":[125,47],
   "t_miss":[116,47],
@@ -79,5 +85,10 @@ export const ART = {
   "t_count3":[72,91],
   "t_count2":[72,91],
   "t_count1":[54,91],
-  "t_go":[120,72]
+  "t_go":[120,72],
+  "w_logo":[203,33],
+  "w_play":[220,54],
+  "w_tile":[110,78],
+  "w_plate":[132,132],
+  "w_plate_s":[76,76]
 }

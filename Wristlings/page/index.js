@@ -2,7 +2,7 @@
 // (API 4.0, built for the Amazfit Bip 6, 390 x 450).
 //
 // THE LOOP
-//   * Walking earns TRACKS (1 per 250 steps today, plus 1 free every 90 min, max 6).
+//   * Walking earns TRACKS (1 per 300 steps today, plus 1 free every 2 hours, max 6).
 //     Spend a track on EXPLORE to meet a wild Wristling.
 //   * Battles are 1 vs 1 and turn based: pick one of 3 moves. Elements matter
 //     (FIRE beats GRASS, WATER beats FIRE ...). The move buttons say STRONG / WEAK.
@@ -29,16 +29,20 @@
 import { createWidget, deleteWidget, widget, event, prop, align, text_style, setStatusBarVisible } from '@zos/ui'
 import { getDeviceInfo } from '@zos/device'
 import { LocalStorage } from '@zos/storage'
-import { Time, Step, HeartRate, Sleep, Weather, Calorie, Pai, Screen, Compass, Vibrator, VIBRATOR_SCENE_SHORT_LIGHT, VIBRATOR_SCENE_SHORT_STRONG, VIBRATOR_SCENE_SHORT_MIDDLE } from '@zos/sensor'
+import { Time, Step, HeartRate, Sleep, Weather, Calorie, Pai, Battery, Compass, Vibrator, VIBRATOR_SCENE_SHORT_LIGHT, VIBRATOR_SCENE_SHORT_STRONG, VIBRATOR_SCENE_SHORT_MIDDLE } from '@zos/sensor'
 import { onGesture, offGesture, GESTURE_LEFT, GESTURE_RIGHT, GESTURE_UP, GESTURE_DOWN } from '@zos/interaction'
 import { ART } from './uiart'
-import { ELEMENTS, STRONG, MOVES, SPECIES, BOOK, STARTERS, BERRIES, effectiveness, FAV_FULL_BONUS, FAV_JOY_BONUS } from './data'
+import { ELEMENTS, SHORT, STRONG, MOVES, SPECIES, BOOK, STARTERS, BERRIES, effectiveness, elementsOf, FAV_FULL_BONUS, FAV_JOY_BONUS } from './data'
 
 // ---------- balance ----------
 const TICK_MS = 50
-const STEPS_PER_TRACK = 250
+const SLIDE_MS = 230 // menu transition: quick enough to stay snappy
+const SLIDE_NAMES = { den: 1, guide: 1, settings: 1, team: 1, detail: 1, feed: 1, book: 1, boss: 1 }
+// these screens don't need a synchronous save on entry; the 10s loop still covers them
+const READ_ONLY_SCREENS = { guide: 1, book: 1, boss: 1, team: 1, detail: 1 }
+const STEPS_PER_TRACK = 300
 const TRACK_CAP = 6
-const FREE_TRACK_MIN = 90 // a free track every 90 minutes, so you can play without walking
+const FREE_TRACK_MIN = 120 // a free track every 2 hours, so you can play without walking
 const STEPS_PER_BERRY = 800
 const STEPS_PER_CHARM = 1500
 const START_TRACKS = 3
@@ -50,12 +54,14 @@ const FULL_DECAY_PER_HOUR = 4 // FOOD 100 -> 0 in 25 hours
 const HUNGRY_BELOW = 25
 const HAPPY_FROM = 70
 const MOOD_EFFECT = 0.1 // happy: +10% attack and defence, hungry: -10%
-const TRAIN_XP_BASE = 3 // TRAIN: each active minute gives (this + level) XP
+const TRAIN_XP_BASE = 3 // TRAIN: active minutes give XP, capped
+const TRAIN_XP_CAP_MIN = 30 // at most this many active minutes count per day
 const GOOD_SLEEP_MIN = 360 // a night this long (minutes) fully heals the team
 const WILD_EVOLVED_LV = 13 // evolved forms show up wild once your lead is this level
+const WILD_FINAL_LV = 28 // ...and fully evolved ones (the third stage) once it is this level
 const WILD_EVOLVED_CHANCE = 0.18 // ...and then this often
 const AI_REST_BELOW = 0.35 // wild ones that know Rest use it below this much HP
-const EVOLVE_JOY = 40
+const EVOLVE_JOY = 55
 const HP_REGEN_PER_MIN = 0.03 // 3% of max HP per minute outside battle
 const RESTS_PER_BATTLE = 2
 const CRIT_CHANCE = 1 / 16
@@ -79,9 +85,30 @@ const CATCH_OVERLEVEL_PENALTY = 0.1
 const SAVE_EVERY_MS = 10000
 const RESET_CONFIRM_MS = 3000 // Settings > RESET: tap again within this to erase the game
 // rare Wristlings
-const RARE_NOON_CHANCE = 0.08 // Solarion: only between 11:00 and 14:00
+const RARE_NOON_CHANCE = 0.03 // Solarion: only between 11:00 and 14:00
 const RARE_WALK_STEPS = 10000 // Boulderon: only once you walked this much today
-const RARE_WALK_CHANCE = 0.1
+const RARE_WALK_CHANCE = 0.3 // high: a 10,000-step day is rare enough
+const RARE_MIDNIGHT_CHANCE = 0.1 // Midnyx: only from 23:00 to 01:00
+const RARE_ACTIVE_MIN = 30 // Pulsarex: only after this many high-heart-rate minutes today
+const RARE_ACTIVE_CHANCE = 0.03
+const RARE_MOON_CHANCE = 0.3 // Selenyx: only on full-moon nights
+const FULL_MOON_DAYS = 1.5 // days either side of the exact full moon that still count
+// step eggs: you find one on a good walking day, and it hatches as you walk
+const EGG_FIND_STEPS = 6000 // a day with this many steps finds an egg
+const EGG_HATCH_STEPS = 5000 // steps to walk with it before it hatches
+const EGG_HATCH_LV = 5 // a hatchling's level (or half your lead's level, if that is higher)
+const EGG_NEW_CHANCE = 0.75 // how often it is one you have not caught yet (while any are left)
+// book rewards: [creatures caught, charms, gold berries, an egg?]
+const MILESTONES = [[10, 3, 0, false], [25, 3, 1, true], [50, 5, 2, true], [75, 5, 2, true], [100, 8, 3, true]]
+const BADGE_CHARMS = 3 // catching every creature of a book category gives this many charms
+const BADGE_GOLD = 1 // ...and gold berries
+// the weekly boss (swipe right on the den): a new one every Monday
+const BOSS_MIN_LV = 8
+const BOSS_STEPS_PER_LV = 4000 // it gains a level for every this many steps you walk that week
+const BOSS_MAX_LV = 40
+const BOSS_HP_MULT = 1.5 // it has this much more HP than a wild one of its level
+const BOSS_EGG_LV = 16 // beating it at this level or higher also gives an egg
+const UPCOMING_DAYS = 3 // the den mentions a seasonal event this many days before it starts
 // catching: tap the moving ring when it meets the gold ring
 const RING_MAX = 120
 const RING_MIN = 24
@@ -123,9 +150,13 @@ let lastSave = 0
 let lastMinute = 0
 let lastSensor = 0
 let lastHeart = 0
+let lastFacing = 0
 let step = 'start'
 const notices = [] // messages shown (one screen each) before the den
-let screen = { name: '', ws: [], taps: [], ui: {} }
+let screen = { name: '', ws: [], poss: [], taps: [], ui: {} }
+let slide = null // active menu slide: { old, dir, t0 }
+let scrollAnim = null // active guide scroll: { from, to, t0 }
+let lastDrag = 0 // used to ignore a gesture that was really a guide drag
 
 // ---------- small helpers ----------
 let timeSensor = null
@@ -185,7 +216,7 @@ function statsOf(m) {
   const L = m.lv
   const mood = m.joy >= HAPPY_FROM ? 1 + MOOD_EFFECT : m.full < HUNGRY_BELOW ? 1 - MOOD_EFFECT : 1
   return {
-    hp: Math.floor(((2 * s.hp * L) / 100 + L + 10) * 1.4),
+    hp: Math.floor(((2 * s.hp * L) / 100 + L + 10) * 1.4 * (m.boss ? BOSS_HP_MULT : 1)),
     atk: Math.max(1, Math.floor(((2 * s.atk * L) / 100 + 5) * mood)),
     def: Math.max(1, Math.floor(((2 * s.def * L) / 100 + 5) * mood)),
     spd: Math.floor((2 * s.spd * L) / 100 + 5)
@@ -195,7 +226,7 @@ function maxHp(m) {
   return statsOf(m).hp
 }
 function xpNext(lv) {
-  return Math.floor(10 + lv * lv * 1.6)
+  return Math.floor(12 + lv * lv * 1.9)
 }
 // The 3 move buttons always have the same roles:
 //   1. main attack: the strongest move of its own element
@@ -240,7 +271,7 @@ function rarityOf(sp) {
 
 function canEvolve(m) {
   const s = SPECIES[m.sp]
-  return !!s.evo && m.lv >= s.evoLv && (!s.evoPai || weeklyPai() >= s.evoPai)
+  return !!s.evo && m.lv >= s.evoLv && (!s.evoPai || weeklyPai() >= s.evoPai) && (!s.evoSteps || (m.walked || 0) >= s.evoSteps)
 }
 
 // gives XP, levels up, returns the messages to show
@@ -264,14 +295,19 @@ function gainXp(m, amount) {
   if (gained) out.push(name + ' grew to Lv ' + m.lv + '!' + (gained > 1 ? ' (+' + gained + ' levels)' : ''))
   for (const mv of learned) out.push(name + ' learned ' + mv + '!')
   if (m.lv >= MAX_LV) m.xp = 0
-  queueEvolution(m, out)
+  queueEvolution(m, out, startLv)
   return out
 }
 
-function queueEvolution(m, out) {
+function queueEvolution(m, out, startLv) {
   const s = SPECIES[m.sp]
-  if (out && s.evo && s.evoPai && m.lv >= s.evoLv && weeklyPai() < s.evoPai && !(m.lv - 1 >= s.evoLv))
+  // a big XP gain can skip over the evolution level; compare the level before
+  // the gain so the hint still shows on a multi-level jump
+  const justReached = startLv !== undefined ? startLv < s.evoLv : !(m.lv - 1 >= s.evoLv)
+  if (out && s.evo && s.evoPai && m.lv >= s.evoLv && weeklyPai() < s.evoPai && justReached)
     out.push(s.name + ' will evolve once your weekly PAI reaches ' + s.evoPai)
+  if (out && s.evo && s.evoSteps && m.lv >= s.evoLv && (m.walked || 0) < s.evoSteps && justReached)
+    out.push(s.name + ' will evolve after walking ' + fmt(s.evoSteps) + ' steps as your lead')
   if (!canEvolve(m) || st.pendingEvo.indexOf(m.id) >= 0) return
   if (m.joy >= EVOLVE_JOY) st.pendingEvo.push(m.id)
   else if (out) out.push(SPECIES[m.sp].name + ' wants to evolve, but needs more JOY')
@@ -317,6 +353,16 @@ function freshState() {
     caught: {},
     favKnown: {},
     pendingEvo: [],
+    life: { steps: 0, day: 0, last: 0 }, // steps counted by the game (legend)
+    streak: { day: 0, count: 0 }, // days in a row with STREAK_STEPS+ steps (legend)
+    legendRest: 0, // the day a streak legend fainted: it comes back the next day
+    egg: null, // the egg you carry: { steps } walked with it
+    eggDay: 0, // the last day an egg was found by walking
+    eggsWaiting: 0, // eggs won while carrying one: they start after it hatches
+    milestones: [], // book rewards already given (creatures caught)
+    badges: {}, // book categories completed
+    week: { key: 0, steps: 0 }, // steps this week (Monday's day key): the boss's level
+    bossWon: 0, // the week the boss was beaten
     last: 0
   }
 }
@@ -324,10 +370,48 @@ function freshState() {
 function save() {
   lastSave = now()
   st.last = lastSave
+  let data = st
   try {
-    storage.setItem('wristlings', JSON.stringify(st))
+    data = Object.assign({}, st, { widget: widgetSummary() })
+  } catch (e) {
+    // the summary is optional
+  }
+  try {
+    storage.setItem('wristlings', JSON.stringify(data))
   } catch (e) {
     console.log('WRISTLINGS save failed: ' + e)
+  }
+}
+
+// A short summary for the watch widget (secondary-widget/index.js). It carries the
+// rates too, so the widget can move hunger, healing and tracks on while the game is
+// closed without knowing the game's formulas. load() ignores it.
+function widgetSummary() {
+  const m = leadMon()
+  const evo = st.pendingEvo.map(monById).filter((x) => x)[0]
+  return {
+    t: now(),
+    started: st.started && !!m,
+    lead: m ? { sp: m.sp, name: SPECIES[m.sp].name, lv: m.lv, el: SPECIES[m.sp].el, elName: ELEMENTS[SPECIES[m.sp].el].name, elColor: ELEMENTS[SPECIES[m.sp].el].color, hp: m.hp, max: maxHp(m), full: m.full, joy: m.joy } : null,
+    team: partyMons().length,
+    // the other two team members, shown smaller left and right of the lead
+    mates: partyMons().slice(1).map((p) => ({ sp: p.sp, lv: p.lv, hp: p.hp, max: maxHp(p) })),
+    resting: !partyMons().some((p) => p.hp >= 1),
+    tracks: st.tracks,
+    cap: TRACK_CAP,
+    freeAt: st.freeAt,
+    freeMin: FREE_TRACK_MIN,
+    walkDay: st.walk.day,
+    walkTracks: st.walk.tracks,
+    stepsPerTrack: STEPS_PER_TRACK,
+    charms: st.charms,
+    caught: Object.keys(st.caught).length,
+    total: BOOK.length,
+    dream: !!st.dream,
+    evolve: evo ? SPECIES[evo.sp].name : '',
+    fullPerHour: FULL_DECAY_PER_HOUR,
+    hungryBelow: HUNGRY_BELOW,
+    hpPerMin: HP_REGEN_PER_MIN
   }
 }
 
@@ -351,6 +435,8 @@ function load() {
 
 // ---------- the watch: steps, heart rate, sleep ----------
 let stepSensor = null
+// sensor objects are expensive to construct: create each one once and reuse it
+let calSensor = null, batSensor = null, paiSensor = null, hrSensor = null, wxSensor = null
 let stepsToday = -1
 function readSteps() {
   let n = -1
@@ -369,6 +455,34 @@ function updateSteps() {
   if (stepsToday < 0) return
   const day = dayKey(now())
   if (st.walk.day !== day) st.walk = { day, tracks: 0, berries: 0, charms: 0 }
+  // steps counted by the game (a legend), the walking streak, and the lead's own steps
+  const life = st.life
+  if (life.day !== day) {
+    life.day = day
+    life.last = 0
+  }
+  const delta = Math.max(0, stepsToday - life.last)
+  life.last = stepsToday
+  life.steps += delta
+  const lead = leadMon()
+  if (lead && delta) {
+    lead.walked = (lead.walked || 0) + delta
+    queueEvolution(lead)
+  }
+  // the weekly boss grows with this week's steps; a carried egg moves on with every step
+  const wk = weekKey(now())
+  if (st.week.key !== wk) st.week = { key: wk, steps: 0 }
+  st.week.steps += delta
+  if (st.egg) st.egg.steps = Math.min(EGG_HATCH_STEPS, st.egg.steps + delta)
+  if (st.started && !st.egg && st.eggDay !== day && stepsToday >= EGG_FIND_STEPS) {
+    st.eggDay = day
+    giveEgg()
+    if (screen.name === 'den') toast('You found an EGG! Walk to hatch it', GOLD)
+  }
+  if (stepsToday >= STREAK_STEPS && st.streak.day !== day) {
+    st.streak.count = st.streak.day === dayKey(now() - 86400000) ? st.streak.count + 1 : 1
+    st.streak.day = day
+  }
   const w = st.walk
   const tracks = Math.floor(stepsToday / STEPS_PER_TRACK)
   if (tracks > w.tracks) {
@@ -400,7 +514,8 @@ function stepsToNextTrack() {
 let activeMinutes = -1
 function updateHeart() {
   try {
-    const hr = new HeartRate()
+    if (!hrSensor) hrSensor = new HeartRate()
+    const hr = hrSensor
     const today = hr.getToday() || []
     let rest = 0
     try {
@@ -462,27 +577,52 @@ function applySleep(total, rem) {
   notices.push({ title: 'GOOD MORNING', text, img: lead ? 'mon/' + lead.sp + '.png' : '' })
 }
 
-// ---------- more of the real world: weather, light, weekend, calories, PAI ----------
+// ---------- more of the real world: weather, weekend, calories, PAI ----------
 // Some Wristlings only come out while one of these is true (their "cond" in data.js).
 const KCAL_SPAWN = 300 // calories burned today before Kindlepig shows up
 const COND_WEIGHT = 3 // a Wristling whose condition is true is this many times as likely
 const RAIN_CODES = [1, 5, 7, 10, 12, 15, 18, 19, 20, 21, 24] // watch weather codes for rain / storms
 const SUN_CODES = [3]
 const FOG_CODES = [13, 14] // fog, haze
-const DARK_LUX = 10 // below this the watch is "in the dark" (a dim room is ~10-50 lux, under a blanket ~0)
 const MIST_NIGHT_STEPS = 8000 // Mistlantern also comes out on nights after this many steps
+const SNOW_CODES = [2, 6, 8, 9, 16] // snow showers, light / moderate / heavy snow, snowstorm
+const LOW_BATTERY = 20 // Ampsnail's line: the watch battery is under this many %
+const HALLOWEEN = [[10, 25], [11, 2]] // Pumpkling's line: from 25 Oct to 2 Nov (month, day)
+const EASTER_DAYS = [-7, 1] // Easter creatures: from Palm Sunday to Easter Monday (Western or Orthodox Easter)
+const NEWYEAR = [[12, 31], [1, 2]] // 31 Dec - 2 Jan (month, day; it wraps round the new year)
+const VALENTINE = [[2, 12], [2, 16]] // 12 - 16 Feb
+const MIDSUMMER = [[6, 19], [6, 25]] // 19 - 25 Jun (and only at night)
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+// legends (one per player)
+const LEGEND_STEPS = 1000000 // one appears once the game has counted this many of your steps
+const STREAK_DAYS = 7 // one appears after this many days in a row with...
+const STREAK_STEPS = 5000 // ...at least this many steps
+const LEGEND_CHANCE = 0.15 // then this often per EXPLORE
+// battle extras
+const BURN_DMG = 0.08 // a burned creature loses this much of its max HP after each of its moves
+const BURN_TURNS = 4
+const FREEZE_TURNS = 1 // a frozen creature skips this many turns
+const SLEEP_TURNS = [1, 3] // a sleeping one skips 1 to 3 turns
+const WEATHER_BOOST = 1.2
+const WEATHER_DAMPEN = 0.8
+const WEATHER = {
+  rain: { name: 'RAIN', boost: 'water', dampen: 'fire' },
+  sun: { name: 'SUN', boost: 'fire', dampen: 'water' },
+  snow: { name: 'SNOW', boost: 'ice', dampen: 'fire' }
+}
 
 let weatherCache = { t: 0, kind: null }
-// 'rain' | 'sun' | 'other', or null when the watch has no forecast
+// 'rain' | 'sun' | 'fog' | 'snow' | 'other', or null when the watch has no forecast
 function weatherKind() {
   const t = now()
   if (weatherCache.t && t - weatherCache.t < 600000) return weatherCache.kind
   let kind = null
   try {
-    const d = new Weather().getForecastWeather()
+    if (!wxSensor) wxSensor = new Weather()
+    const d = wxSensor.getForecastWeather()
     const today = d && d.forecastData && d.forecastData.data && d.forecastData.data[0]
     if (today)
-      kind = RAIN_CODES.indexOf(today.index) >= 0 ? 'rain' : SUN_CODES.indexOf(today.index) >= 0 ? 'sun' : FOG_CODES.indexOf(today.index) >= 0 ? 'fog' : 'other'
+      kind = RAIN_CODES.indexOf(today.index) >= 0 ? 'rain' : SUN_CODES.indexOf(today.index) >= 0 ? 'sun' : FOG_CODES.indexOf(today.index) >= 0 ? 'fog' : SNOW_CODES.indexOf(today.index) >= 0 ? 'snow' : 'other'
   } catch (e) {
     kind = null
   }
@@ -497,16 +637,71 @@ function isWeekendAfternoon() {
 function kcalToday() {
   let n = 0
   try {
-    n = new Calorie().getCurrent() || 0
+    if (!calSensor) calSensor = new Calorie()
+    n = calSensor.getCurrent() || 0
   } catch (e) {
     n = 0
   }
   return n
 }
+// watch battery in %, or -1 if unknown
+function batteryLevel() {
+  try {
+    if (!batSensor) batSensor = new Battery()
+    const v = batSensor.getCurrent()
+    return typeof v === 'number' ? v : -1
+  } catch (e) {
+    return -1
+  }
+}
+// '31 Dec - 2 Jan' from [[12, 31], [1, 2]]
+function dateRange(r) {
+  return r[0][1] + ' ' + MONTHS[r[0][0] - 1] + ' - ' + r[1][1] + ' ' + MONTHS[r[1][0] - 1]
+}
+function isHalloween() {
+  const d = new Date(now())
+  const md = (d.getMonth() + 1) * 100 + d.getDate()
+  return md >= HALLOWEEN[0][0] * 100 + HALLOWEEN[0][1] && md <= HALLOWEEN[1][0] * 100 + HALLOWEEN[1][1]
+}
+// true while today's date is inside [[month, day], [month, day]] (it may wrap round New Year)
+function inDates(r) {
+  const d = new Date(now())
+  const md = (d.getMonth() + 1) * 100 + d.getDate()
+  const a = r[0][0] * 100 + r[0][1]
+  const b = r[1][0] * 100 + r[1][1]
+  return a <= b ? md >= a && md <= b : md >= a || md <= b
+}
+// Easter Sunday of a year: Western (Gregorian) and Orthodox (Julian, shown as a Gregorian date)
+function easterDays(y) {
+  const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4
+  const f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3)
+  const h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4
+  const l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451)
+  const west = new Date(y, Math.floor((h + l - 7 * m + 114) / 31) - 1, ((h + l - 7 * m + 114) % 31) + 1, 12)
+  const jd = (19 * (y % 19) + 15) % 30
+  const je = (2 * (y % 4) + 4 * (y % 7) - jd + 34) % 7
+  const julian = new Date(y, Math.floor((jd + je + 114) / 31) - 1, ((jd + je + 114) % 31) + 1, 12)
+  const east = new Date(julian.getTime() + 13 * 86400000) // Julian -> Gregorian (1900 - 2099)
+  return [west, east]
+}
+function isEaster() {
+  const t = new Date(now())
+  const noon = new Date(t.getFullYear(), t.getMonth(), t.getDate(), 12).getTime()
+  return easterDays(t.getFullYear()).some((e) => {
+    const k = Math.round((noon - e.getTime()) / 86400000)
+    return k >= EASTER_DAYS[0] && k <= EASTER_DAYS[1]
+  })
+}
+// days in a row with STREAK_STEPS+ steps (0 once a day was missed)
+function streakNow() {
+  const d = st.streak.day
+  return d === dayKey(now()) || d === dayKey(now() - 86400000) ? st.streak.count : 0
+}
 function weeklyPai() {
   let n = 0
   try {
-    n = new Pai().getTotal() || 0
+    if (!paiSensor) paiSensor = new Pai()
+    n = paiSensor.getTotal() || 0
   } catch (e) {
     n = 0
   }
@@ -517,7 +712,13 @@ function weeklyPai() {
 // It only runs on the den and battle screens, to save battery.
 const FACE_TOLERANCE = 30 // degrees either side that still count as "facing north / east"
 const NEEDLE_TOLERANCE = 45 // degrees either side that count as facing where Needlefin points
-const NEEDLE_FLEE = 0.5 // chance Needlefin swims away after your turn if you were not facing it
+const NEEDLE_FLEE = 0.5 // chance a compass creature gets away after your turn if you were not facing it
+const DUSK_HOURS = [17, 21] // Gloamstag: facing west between these hours
+const NOON_HOURS = [11, 15] // Sunquill: facing south between these hours
+const SPIN_WINDOW_MS = 30000 // Whirlwisp: a full turn on the den this recently before you explore
+const SPIN_DEG = 330 // ...this many degrees counts as a full turn
+const STEADY_MS = 8000 // Stillbill: hold one heading on the den this long before you explore
+const STEADY_DEG = 15 // ...staying within this many degrees
 const DIRS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
 const DIR_WORDS = ['NORTH', 'NORTH-EAST', 'EAST', 'SOUTH-EAST', 'SOUTH', 'SOUTH-WEST', 'WEST', 'NORTH-WEST']
 let compass = null
@@ -565,20 +766,39 @@ function facing(target, tolerance) {
   return h >= 0 && angleGap(h, target) <= tolerance
 }
 
-// ambient light in lux from the watch's light sensor, or -1 if it has none
-function lux() {
-  try {
-    const v = new Screen().getLight()
-    return typeof v === 'number' ? v : -1
-  } catch (e) {
-    return -1
-  }
+// recent compass readings on the den, for the spin and steady-heading creatures
+let headings = []
+function trackHeading(h, t) {
+  if (h < 0) return
+  headings.push({ t, h })
+  const keep = Math.max(SPIN_WINDOW_MS, STEADY_MS) + 1000
+  while (headings.length && t - headings[0].t > keep) headings.shift()
 }
-function condMet(c) {
-  if (c === 'dark') {
-    const l = lux()
-    return l >= 0 && l < DARK_LUX
+function spunAround() {
+  const t = now()
+  let turn = 0
+  let prev = null
+  for (const r of headings) {
+    if (t - r.t > SPIN_WINDOW_MS) continue
+    if (prev) {
+      let d = r.h - prev.h
+      if (d > 180) d -= 360
+      if (d < -180) d += 360
+      turn += d
+    }
+    prev = r
   }
+  return Math.abs(turn) >= SPIN_DEG
+}
+function heldSteady() {
+  const t = now()
+  const recent = headings.filter((r) => t - r.t <= STEADY_MS + 600)
+  if (!recent.length || t - recent[0].t < STEADY_MS - 600 || t - recent[recent.length - 1].t > 1500) return false
+  const last = recent[recent.length - 1].h
+  return recent.every((r) => angleGap(r.h, last) <= STEADY_DEG)
+}
+
+function condMet(c) {
   if (c === 'north') return facing(0, FACE_TOLERANCE)
   if (c === 'dawn') return hourOf(now()) >= 5 && hourOf(now()) < 9 && facing(90, FACE_TOLERANCE)
   if (c === 'compass') return heading() >= 0
@@ -587,49 +807,90 @@ function condMet(c) {
   if (c === 'rain') return weatherKind() === 'rain'
   if (c === 'sun') return weatherKind() === 'sun' && !isNight()
   if (c === 'kcal') return kcalToday() >= KCAL_SPAWN
+  if (c === 'dusk') return hourOf(now()) >= DUSK_HOURS[0] && hourOf(now()) < DUSK_HOURS[1] && facing(270, FACE_TOLERANCE)
+  if (c === 'south') return hourOf(now()) >= NOON_HOURS[0] && hourOf(now()) < NOON_HOURS[1] && facing(180, FACE_TOLERANCE)
+  if (c === 'spin') return spunAround()
+  if (c === 'steady') return heldSteady()
+  if (c === 'battery') {
+    const b = batteryLevel()
+    return b >= 0 && b < LOW_BATTERY
+  }
+  if (c === 'halloween') return isHalloween()
+  if (c === 'december') return new Date(now()).getMonth() === 11
+  if (c === 'easter') return isEaster()
+  if (c === 'newyear') return inDates(NEWYEAR)
+  if (c === 'valentine') return inDates(VALENTINE)
+  if (c === 'midsummer') return inDates(MIDSUMMER)
+  if (c === 'friday13') {
+    const d = new Date(now())
+    return d.getDay() === 5 && d.getDate() === 13
+  }
   return true
 }
 
 // ---------- widgets ----------
-function wrap(w, extra) {
-  const o = { w }
+// Every widget is recorded by wrap() so a screen can be moved as one layer by
+// applying the same offset to all of them.
+function makeWidget(type, params) {
+  return createWidget(type, params)
+}
+function wrap(w, extra, params) {
+  const o = { w, x: params ? params.x : undefined, y: params ? params.y : undefined, h: params ? params.h : undefined }
   if (extra) for (const k in extra) o[k] = extra[k]
+  o.bx = o.x
+  o.by = o.y
   screen.ws.push(w)
+  screen.poss.push(o)
   return o
 }
 function mkRect(x, y, w, h, color, radius) {
-  return wrap(createWidget(widget.FILL_RECT, { x, y, w, h, radius: radius || 0, color }), { b: { x, y, w, h, radius: radius || 0, color } })
+  const p = { x, y, w, h, radius: radius || 0, color }
+  return wrap(makeWidget(widget.FILL_RECT, p), { b: p }, p)
 }
 function mkRing(x, y, w, h, color, radius, lw) {
-  return wrap(createWidget(widget.STROKE_RECT, { x, y, w, h, radius, line_width: lw, color }), { b: { x, y, w, h, radius, color, line_width: lw } })
+  const p = { x, y, w, h, radius, line_width: lw, color }
+  return wrap(makeWidget(widget.STROKE_RECT, p), { b: p }, p)
 }
-function mkText(x, y, w, h, size, color, alignH, text) {
-  return wrap(
-    createWidget(widget.TEXT, {
-      x, y, w, h,
-      text: text || '',
-      text_size: size,
-      color,
-      align_h: alignH === undefined ? align.CENTER_H : alignH,
-      align_v: align.CENTER_V,
-      text_style: text_style.WRAP
-    }),
-    { t: text || '', c: color }
-  )
+function mkText(x, y, w, h, size, color, alignH, text, alignV) {
+  const p = {
+    x, y, w, h,
+    text: text || '',
+    text_size: size,
+    color,
+    align_h: alignH === undefined ? align.CENTER_H : alignH,
+    align_v: alignV === undefined ? align.CENTER_V : alignV,
+    text_style: text_style.WRAP
+  }
+  return wrap(makeWidget(widget.TEXT, p), { t: text || '', c: color, tp: p }, p)
 }
 function mkImg(x, y, src) {
-  return wrap(createWidget(widget.IMG, { x, y, src }), { src, x, y, v: true })
+  const p = { x, y, src }
+  return wrap(makeWidget(widget.IMG, p), { src, x, y, v: true }, p)
 }
 function setText(o, v) {
   if (o.sh) setText(o.sh, v)
   if (o.t === v) return
   o.t = v
+  // keep the style blob in sync: prop.MORE must not reset text to ''
+  if (o.tp) o.tp.text = v
   o.w.setProperty(prop.TEXT, v)
 }
 function setTextColor(o, c) {
   if (o.c === c) return
   o.c = c
   o.w.setProperty(prop.COLOR, c)
+}
+function setTextStyle(o, changes) {
+  const b = o.tp || o.b
+  if (!b) return
+  let same = true
+  for (const k in changes) if (b[k] !== changes[k]) same = false
+  if (same) return
+  for (const k in changes) b[k] = changes[k]
+  if (changes.color !== undefined) o.c = changes.color
+  if (changes.x !== undefined) o.x = changes.x
+  if (changes.y !== undefined) o.y = changes.y
+  o.w.setProperty(prop.MORE, b)
 }
 function setVisible(o, v) {
   if (o.sh) setVisible(o.sh, v)
@@ -701,9 +962,9 @@ function fitSize(text, w, h, max, min) {
   return min
 }
 
-function mkTextS(x, y, w, h, size, color, alignH, text) {
-  const sh = mkText(x + 1, y + 2, w, h, size, INK, alignH, text)
-  const o = mkText(x, y, w, h, size, color, alignH, text)
+function mkTextS(x, y, w, h, size, color, alignH, text, alignV) {
+  const sh = mkText(x + 1, y + 2, w, h, size, INK, alignH, text, alignV)
+  const o = mkText(x, y, w, h, size, color, alignH, text, alignV)
   o.sh = sh
   return o
 }
@@ -760,8 +1021,9 @@ function addTap(x, y, w, h, fn) {
 }
 
 // ---------- screens ----------
-function clearScreen() {
-  for (const w of screen.ws) {
+function clearWidgets(ws) {
+  if (!ws) return
+  for (const w of ws) {
     try {
       if (typeof deleteWidget === 'function') deleteWidget(w)
       else w.setProperty(prop.VISIBLE, false)
@@ -774,15 +1036,68 @@ function clearScreen() {
     }
   }
 }
+function clearScreen() {
+  clearWidgets(screen.ws)
+}
 
-function goto(name, arg) {
-  step = 'goto ' + name
-  clearScreen()
-  screen = { name, ws: [], taps: [], ui: {}, arg, instant: false }
+function ease(p) {
+  return 1 - (1 - p) * (1 - p)
+}
+
+// Move every widget on a screen by the same offset during a transition.
+function moveLayer(s, dx, dy) {
+  if (!s) return
+  dx = Math.round(dx || 0)
+  dy = Math.round(dy || 0)
+  for (const o of s.poss || []) {
+    if (o.bx === undefined || o.v === false) continue
+    setPos(o, o.bx + dx, o.by + dy)
+  }
+}
+
+function slideDistance(axis) {
+  return axis === 'y' ? H : W
+}
+
+function finishSlide() {
+  if (!slide) return
+  moveLayer(screen, 0, 0)
+  clearWidgets(slide.old.ws)
+  slide = null
+}
+
+function tickSlide(t) {
+  if (!slide) return
+  const p = clamp((t - slide.t0) / SLIDE_MS, 0, 1)
+  const e = ease(p)
+  const dist = slideDistance(slide.axis) * slide.dir
+  if (slide.axis === 'y') {
+    moveLayer(slide.old, 0, -dist * e)
+    moveLayer(screen, 0, dist * (1 - e))
+  } else {
+    moveLayer(slide.old, -dist * e, 0)
+    moveLayer(screen, dist * (1 - e), 0)
+  }
+  if (p >= 1) finishSlide()
+}
+
+// Back reverses the way this screen came in.
+function backInfo() {
+  if (!screen || !screen.enterDir) return { dir: -1, axis: 'x' }
+  return { dir: -screen.enterDir, axis: screen.enterAxis || 'x' }
+}
+function gotoBack(name, arg) {
+  const b = backInfo()
+  goto(name, arg, b.dir, b.axis)
+}
+
+// Builds a screen without deleting the current one, so two screens can slide.
+function buildScreen(name, arg, offset, axis) {
+  screen = { name, ws: [], poss: [], taps: [], ui: {}, arg, instant: false, enterDir: 0, enterAxis: 'x' }
   // one full-screen picture instead of a fill + shapes: cheap to draw
   if (name === 'den' || name === 'battle') compassOn()
   else compassOff()
-  mkArt(0, 0, bgFor(name))
+  screen.ui.bg = mkArt(0, 0, bgFor(name))
   SCREENS[name](arg)
   // toast (above the screen, below the touch layer)
   screen.ui.toastBg = mkArt(CX - 160, 60, 'pnl_toast')
@@ -790,7 +1105,7 @@ function goto(name, arg) {
   setVisible(screen.ui.toastBg, false)
   setVisible(screen.ui.toast, false)
   screen.toastUntil = 0
-  // touch layer: an empty full-screen text on top of everything
+  // touch layer stays put so taps always use screen coordinates
   const touch = createWidget(widget.TEXT, { x: 0, y: 0, w: W, h: H, text: '', text_size: 10, color: BG })
   screen.ws.push(touch)
   touch.addEventListener(event.CLICK_DOWN, (e) => onDown(e))
@@ -799,7 +1114,36 @@ function goto(name, arg) {
   } catch (e) {
     // no finger-lift events: taps fire on touch-down after a short wait
   }
-  save()
+  try {
+    touch.addEventListener(event.MOVE, (e) => onMove(e))
+  } catch (e) {
+    // no drag events: guide still scrolls with swipes
+  }
+  if (offset) {
+    if (axis === 'y') moveLayer(screen, 0, offset)
+    else moveLayer(screen, offset, 0)
+  }
+  if (!READ_ONLY_SCREENS[name]) save()
+}
+
+function goto(name, arg, dir, axis) {
+  step = 'goto ' + name
+  if (slide) finishSlide()
+  scrollAnim = null
+  const old = screen
+  // Same-screen rebuilds (page turns, settings toggles) must not re-animate.
+  const animate = old && old.name && old.name !== name && SLIDE_NAMES[old.name] && SLIDE_NAMES[name]
+  if (!animate) {
+    clearScreen()
+    buildScreen(name, arg, 0)
+    return
+  }
+  dir = dir === -1 ? -1 : 1
+  axis = axis === 'y' ? 'y' : 'x'
+  buildScreen(name, arg, slideDistance(axis) * dir, axis)
+  screen.enterDir = dir
+  screen.enterAxis = axis
+  slide = { old, dir, axis, t0: now() }
 }
 
 function toast(msg, color) {
@@ -815,13 +1159,15 @@ function toast(msg, color) {
 
 // where to go "home": evolutions first, then notices, then the den
 function home() {
+  checkBook()
   st.pendingEvo = st.pendingEvo.filter((id) => {
     const m = monById(id)
     return m && canEvolve(m)
   })
   if (st.pendingEvo.length) return goto('evolve', st.pendingEvo[0])
   if (notices.length) return goto('notice', notices.shift())
-  goto('den')
+  const b = backInfo()
+  goto('den', undefined, b.dir, b.axis)
 }
 
 // ---------- starter ----------
@@ -878,6 +1224,10 @@ function buildDen() {
   u.charms = mkTextS(243, 8, 80, 36, 20, 0x8fe6ff, align.LEFT, '')
   u.walk = mkTextS(30, 46, W - 60, 22, 15, WHITE, align.CENTER_H, '')
   u.facing = mkTextS(CX - 70, 66, 140, 20, 14, 0x8fe6ff, align.CENTER_H, '')
+  // the egg you carry, left of your lead: it fills up as you walk, tap it to check or hatch
+  u.egg = mkArt(26, 104, 'ico_egg')
+  u.eggTxt = mkText(14, 156, 68, 20, 14, LILAC, align.CENTER_H, '')
+  addTap(14, 96, 68, 84, eggTap)
   // the lead creature standing on the grass
   u.shadow = mkRect(CX - 50, 184, 100, 12, isNight() ? 0x123020 : 0x2f7a34, 6)
   u.img = mkImg(CX - 64, DEN_MON_Y, 'mon/' + leadMon().sp + '.png')
@@ -897,15 +1247,15 @@ function buildDen() {
   u.hp = row(238, 'HP', GREEN)
   u.food = row(258, 'FOOD', ORANGE)
   u.joy = row(278, 'JOY', PINK)
-  u.status = mkTextS(30, 288, W - 60, 26, 17, DIM, align.CENTER_H, '')
+  u.status = mkTextS(24, 284, W - 48, 34, 15, DIM, align.CENTER_H, '')
   u.explore = mkArtButton(45, 316, 'btn_explore', explore, { badge: true })
   const bx = [34, 116, 198, 280]
-  mkArtButton(bx[0], 378, 'btn_feed', () => goto('feed', { id: leadMon().id, back: 'den' }))
-  mkArtButton(bx[1], 378, 'btn_team', () => goto('team', 0))
-  mkArtButton(bx[2], 378, 'btn_book', () => goto('book', 0))
+  mkArtButton(bx[0], 378, 'btn_feed', () => goto('feed', { id: leadMon().id, back: 'den' }, 1))
+  mkArtButton(bx[1], 378, 'btn_team', () => goto('team', 0, 1))
+  mkArtButton(bx[2], 378, 'btn_book', () => goto('book', 0, 1))
   u.train = mkArtButton(bx[3], 378, 'btn_train', train, { badge: true })
   u.train.offFn = () => toast(activeMinutes < 0 ? 'No heart rate data' : 'Get your pulse up: active minutes = XP', PINK)
-  mkText(60, 430, W - 120, 18, 13, DIM, align.CENTER_H, 'swipe left: GUIDE    swipe up: SETTINGS')
+  mkText(34, 430, W - 68, 18, 13, DIM, align.CENTER_H, 'left: GUIDE   right: BOSS   up: SETTINGS')
   updateDen()
 }
 
@@ -916,7 +1266,7 @@ function updateDen() {
   setText(u.tracks, st.tracks + '/' + TRACK_CAP)
   setText(u.charms, String(st.charms))
   const next = stepsToNextTrack()
-  setText(u.walk, stepsToday < 0 ? 'no step counter: free track every 90 min' : st.tracks >= TRACK_CAP ? fmt(stepsToday) + ' steps today: tracks full!' : 'next track in ' + next + ' steps  (' + fmt(stepsToday) + ' today)')
+  setText(u.walk, stepsToday < 0 ? 'no step counter: free track every 2 hours' : st.tracks >= TRACK_CAP ? fmt(stepsToday) + ' steps today: tracks full!' : 'next track in ' + next + ' steps  (' + fmt(stepsToday) + ' today)')
   updateFacing()
   setSrc(u.img, 'mon/' + m.sp + '.png')
   setText(u.name, s.name + '  Lv ' + m.lv)
@@ -927,14 +1277,30 @@ function updateDen() {
   setText(u.food.val, Math.round(m.full) + '')
   setBar(u.joy.bar, m.joy / 100)
   setText(u.joy.val, Math.round(m.joy) + '')
+  const egg = !!st.egg
+  const eggReady = egg && st.egg.steps >= EGG_HATCH_STEPS
+  setVisible(u.egg, egg)
+  setVisible(u.eggTxt, egg)
+  if (egg) {
+    setSrc(u.egg, artSrc(eggReady ? 'ico_egg_ready' : 'ico_egg'))
+    setText(u.eggTxt, eggReady ? 'TAP!' : Math.floor((st.egg.steps * 100) / EGG_HATCH_STEPS) + '%')
+    setTextColor(u.eggTxt, eggReady ? GOLD : LILAC)
+  }
   let status = 'Walk to find more Wristlings'
   let sc = LILAC
+  let keep = false // an important one: never swapped for the coming-up line
   if (st.dream) {
     status = 'A DREAM VISITOR is waiting!'
     sc = PURPLE
+    keep = true
+  } else if (eggReady) {
+    status = 'Your egg is hatching: tap it!'
+    sc = GOLD
+    keep = true
   } else if (!partyMons().some((p) => p.hp >= 1)) {
     status = 'Your team is resting...'
     sc = RED
+    keep = true
   } else if (m.full < HUNGRY_BELOW) {
     status = s.name + ' is hungry: -10% power'
     sc = ORANGE
@@ -947,9 +1313,15 @@ function updateDen() {
   } else if (condMet('dawn')) {
     status = 'Facing the sunrise: a lark is singing'
     sc = GOLD
-  } else if (condMet('dark')) {
-    status = "It's dark... something squeaks nearby"
-    sc = PURPLE
+  } else if (condMet('dusk')) {
+    status = 'Facing the sunset: antlers glow on the horizon'
+    sc = GOLD
+  } else if (condMet('south')) {
+    status = 'Facing the midday sun: something bristles'
+    sc = GOLD
+  } else if (condMet('battery')) {
+    status = 'Low battery: something hungry for power is near'
+    sc = ORANGE
   } else if (condMet('mist')) {
     status = 'Mist is rising: a lantern flickers'
     sc = LILAC
@@ -974,9 +1346,21 @@ function updateDen() {
   } else if (hourOf(now()) >= 11 && hourOf(now()) < 14) {
     status = 'Noon: the sun is at its strongest'
     sc = GOLD
+  } else if (isNight() && isFullMoon()) {
+    status = 'Full moon: something silver is out tonight'
+    sc = WHITE
+  } else if (activeMinutes >= RARE_ACTIVE_MIN) {
+    status = 'Your heart worked hard today: something stirs...'
+    sc = ORANGE
   } else if (isNight()) {
     status = 'Night: Shadow Wristlings are out'
     sc = PURPLE
+  }
+  // every other 10 seconds: a seasonal event that is about to start
+  const up = keep ? '' : upcoming()
+  if (up && Math.floor(now() / 10000) % 2 === 1) {
+    status = up
+    sc = GOLD
   }
   setText(u.status, status)
   setTextColor(u.status, sc)
@@ -1025,7 +1409,8 @@ function updateFacing() {
   const u = screen.ui
   if (!u.facing) return
   const h = heading()
-  setText(u.facing, h < 0 ? '' : 'facing ' + DIRS[dirIndex(h)])
+  trackHeading(h, now())
+  setText(u.facing, h < 0 ? '' : 'facing ' + DIRS[dirIndex(h)] + (spunAround() ? '  spun!' : heldSteady() ? '  steady' : ''))
 }
 
 function explore() {
@@ -1048,12 +1433,13 @@ function rollWild() {
   const lead = leadMon()
   const night = isNight()
   const h = hourOf(now())
-  // rare ones have their own rules (see RARE_* in the balance section)
-  if (h >= 11 && h < 14 && Math.random() < RARE_NOON_CHANCE) return enemyMon('solarion', clamp(lead.lv + 2, 8, MAX_LV))
-  if (stepsToday >= RARE_WALK_STEPS && Math.random() < RARE_WALK_CHANCE) return enemyMon('boulderon', clamp(lead.lv + 2, 8, MAX_LV))
+  // legends (one per player), then the rare ones (see RARE_* in the balance section)
+  const legend = legendReady()
+  if (legend && Math.random() < LEGEND_CHANCE) return enemyMon(legend, clamp(lead.lv + 3, 10, MAX_LV))
+  for (const r of RARES) if (r.when() && Math.random() < r.chance) return enemyMon(r.id, clamp(lead.lv + 2, 8, MAX_LV))
   const ok = (id) => !SPECIES[id].rare && (night || SPECIES[id].time !== 'night') && (!SPECIES[id].cond || condMet(SPECIES[id].cond))
   const base = BOOK.filter((id) => ok(id) && !PRE[id])
-  const evolved = BOOK.filter((id) => ok(id) && PRE[id])
+  const evolved = BOOK.filter((id) => ok(id) && PRE[id] && (!PRE[PRE[id]] || lead.lv >= WILD_FINAL_LV))
   let sp
   if (lead.lv >= WILD_EVOLVED_LV && evolved.length && Math.random() < WILD_EVOLVED_CHANCE) sp = pick(evolved)
   else {
@@ -1062,7 +1448,7 @@ function rollWild() {
     for (const id of base) {
       bag.push(id)
       if (night && SPECIES[id].el === 'shadow') bag.push(id, id)
-      // creatures tied to weather, light, weekend or calories are easier to meet while it lasts
+      // creatures tied to weather, weekend, calories or the compass are easier to meet while it lasts
       if (SPECIES[id].cond) for (let k = 1; k < (SPECIES[id].condWeight || COND_WEIGHT); k++) bag.push(id)
     }
     sp = pick(bag)
@@ -1071,6 +1457,194 @@ function rollWild() {
   let lv = clamp(lead.lv + (lead.lv < 10 ? randInt(-3, 0) : randInt(-3, 1)), 2, MAX_LV)
   if (PRE[sp]) lv = Math.max(lv, SPECIES[PRE[sp]].evoLv)
   return enemyMon(sp, lv)
+}
+
+// days since the last new moon (0 - 29.5); 14.8 is full moon
+function moonAge(t) {
+  const SYNODIC = 29.530588853
+  const NEW_MOON = Date.UTC(2000, 0, 6, 18, 14) // a known new moon
+  const a = ((t - NEW_MOON) / 86400000) % SYNODIC
+  return a < 0 ? a + SYNODIC : a
+}
+function isFullMoon() {
+  return Math.abs(moonAge(now()) - 29.530588853 / 2) <= FULL_MOON_DAYS
+}
+// the rare ones: each only while its moment lasts, then in `chance` of explores
+const RARES = [
+  { id: 'solarion', chance: RARE_NOON_CHANCE, when: () => hourOf(now()) >= 11 && hourOf(now()) < 14, text: 'Only between 11:00 and 14:00', guide: 'noon, 11:00 - 14:00' },
+  { id: 'boulderon', chance: RARE_WALK_CHANCE, when: () => stepsToday >= RARE_WALK_STEPS, text: 'Only after ' + fmt(RARE_WALK_STEPS) + ' steps in a day', guide: fmt(RARE_WALK_STEPS) + ' steps in a day' },
+  { id: 'midnyx', chance: RARE_MIDNIGHT_CHANCE, when: () => hourOf(now()) === 23 || hourOf(now()) === 0, text: 'Only between 23:00 and 01:00', guide: 'around midnight, 23:00 - 01:00' },
+  { id: 'pulsarex', chance: RARE_ACTIVE_CHANCE, when: () => activeMinutes >= RARE_ACTIVE_MIN, text: 'Only after ' + RARE_ACTIVE_MIN + ' minutes of high heart rate today (the same minutes as TRAIN)', guide: RARE_ACTIVE_MIN + ' high-heart-rate minutes in a day' },
+  { id: 'selenyx', chance: RARE_MOON_CHANCE, when: () => isNight() && isFullMoon(), text: 'Only at night around a full moon', guide: 'a full-moon night' }
+]
+// ---------- step eggs ----------
+const CALENDAR = ['halloween', 'december', 'easter', 'newyear', 'valentine', 'midsummer', 'friday13']
+function giveEgg() {
+  if (st.egg) st.eggsWaiting++
+  else st.egg = { steps: 0 }
+}
+// what can hatch: first forms and singles, but no rares and nothing seasonal
+function eggPool() {
+  return BOOK.filter((id) => !PRE[id] && !SPECIES[id].rare && CALENDAR.indexOf(SPECIES[id].cond) < 0)
+}
+function hatchEgg() {
+  if (!st.egg || st.egg.steps < EGG_HATCH_STEPS) return
+  const pool = eggPool()
+  const fresh = pool.filter((id) => !st.caught[id])
+  const sp = fresh.length && Math.random() < EGG_NEW_CHANCE ? pick(fresh) : pick(pool)
+  const m = newMon(sp, Math.max(EGG_HATCH_LV, Math.floor(leadMon().lv / 2)))
+  m.full = 80
+  m.joy = 80
+  st.mons.push(m)
+  const first = !st.caught[sp]
+  st.caught[sp] = true
+  st.seen[sp] = true
+  let where = 'It is waiting in your team list.'
+  if (st.party.length < PARTY_MAX) {
+    st.party.push(m.id)
+    where = 'It joined your party!'
+  }
+  st.egg = null
+  if (st.eggsWaiting > 0) {
+    st.eggsWaiting--
+    st.egg = { steps: 0 }
+  }
+  notices.push({ title: 'IT HATCHED!', text: 'Out came ' + (first ? 'a NEW one: ' : '') + SPECIES[sp].name + ', Lv ' + m.lv + '! ' + where + (st.egg ? ' Your next egg is warming up.' : ''), img: 'mon/' + sp + '.png' })
+  buzz('mid', 'catch')
+  home()
+}
+function eggTap() {
+  if (!st.egg) return toast('Walk ' + fmt(EGG_FIND_STEPS) + ' steps in a day to find an egg', GOLD)
+  if (st.egg.steps >= EGG_HATCH_STEPS) return hatchEgg()
+  toast(fmt(EGG_HATCH_STEPS - st.egg.steps) + ' more steps to hatch' + (st.eggsWaiting ? ' (+' + st.eggsWaiting + ' waiting)' : ''), GOLD)
+}
+
+// ---------- book rewards ----------
+// a badge for each book category, once every creature in it is caught
+const BADGES = [
+  { id: 'everyday', name: 'Everyday', has: (s) => !s.cond && !s.time && !s.rare },
+  { id: 'night', name: 'Night', has: (s) => s.time === 'night' && !s.cond },
+  { id: 'weather', name: 'Weather', has: (s) => ['rain', 'sun', 'mist'].indexOf(s.cond) >= 0 },
+  { id: 'life', name: 'Daily life', has: (s) => ['kcal', 'weekend', 'battery'].indexOf(s.cond) >= 0 },
+  { id: 'compass', name: 'Compass', has: (s) => ['compass', 'north', 'dawn', 'dusk', 'south', 'spin', 'steady'].indexOf(s.cond) >= 0 },
+  { id: 'calendar', name: 'Calendar', has: (s) => CALENDAR.indexOf(s.cond) >= 0 },
+  { id: 'rare', name: 'Rare', has: (s) => s.rare && !s.legend },
+  { id: 'legend', name: 'Legends', has: (s) => !!s.legend }
+]
+function badgeCount(b) {
+  const ids = BOOK.filter((id) => b.has(SPECIES[id]))
+  return [ids.filter((id) => st.caught[id]).length, ids.length]
+}
+function rewardText(charms, gold, egg) {
+  const parts = [charms + ' charms']
+  if (gold) parts.push(gold + ' Gold Berr' + (gold > 1 ? 'ies' : 'y'))
+  if (egg) parts.push('an EGG')
+  return parts.slice(0, -1).join(', ') + (parts.length > 1 ? ' and ' : '') + parts[parts.length - 1]
+}
+function nextMilestone() {
+  return MILESTONES.find((x) => st.milestones.indexOf(x[0]) < 0) || null
+}
+// give any book reward that is due (called on the way home)
+function checkBook() {
+  if (!st.started) return
+  const n = BOOK.filter((id) => st.caught[id]).length
+  for (const [at, charms, gold, egg] of MILESTONES) {
+    if (n < at || st.milestones.indexOf(at) >= 0) continue
+    st.milestones.push(at)
+    st.charms += charms
+    st.berries.gold += gold
+    if (egg) giveEgg()
+    notices.push({ title: at + ' CAUGHT!', text: 'Your book reached ' + at + ' Wristlings. Reward: ' + rewardText(charms, gold, egg) + '.', img: '' })
+  }
+  for (const b of BADGES) {
+    const [got, all] = badgeCount(b)
+    if (st.badges[b.id] || !all || got < all) continue
+    st.badges[b.id] = true
+    st.charms += BADGE_CHARMS
+    st.berries.gold += BADGE_GOLD
+    notices.push({ title: 'BADGE: ' + b.name.toUpperCase(), text: 'You caught every ' + b.name.toLowerCase() + ' Wristling! Reward: ' + rewardText(BADGE_CHARMS, BADGE_GOLD, false) + '.', img: '' })
+  }
+}
+
+// ---------- the weekly boss ----------
+// Monday's day key: the week the boss belongs to
+function weekKey(t) {
+  const d = new Date(t)
+  return dayKey(new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7), 12).getTime())
+}
+// fully evolved ones that stay put in battle (no compass ones) and are not seasonal
+function bossPool() {
+  return BOOK.filter((id) => PRE[id] && !SPECIES[id].evo && SPECIES[id].cond !== 'compass' && CALENDAR.indexOf(SPECIES[id].cond) < 0)
+}
+function bossNow() {
+  const pool = bossPool()
+  const wk = weekKey(now())
+  const steps = st.week.key === wk ? st.week.steps : 0
+  return { sp: pool[(Math.floor(wk / 7) * 31) % pool.length], lv: clamp(BOSS_MIN_LV + Math.floor(steps / BOSS_STEPS_PER_LV), BOSS_MIN_LV, BOSS_MAX_LV), won: st.bossWon === wk }
+}
+function bossReward(lv) {
+  return { charms: 2 + Math.floor(lv / 8), gold: lv >= 24 ? 2 : 1, egg: lv >= BOSS_EGG_LV }
+}
+function fightBoss() {
+  const b = bossNow()
+  if (b.won) return toast('Beaten! A new boss comes on Monday', GOLD)
+  if (!partyMons().some((p) => p.hp >= 1)) return toast('Your team needs rest first', RED)
+  const e = enemyMon(b.sp, b.lv)
+  e.boss = true
+  e.hp = maxHp(e)
+  startBattle(e, false)
+}
+function buildBoss() {
+  const b = bossNow()
+  const r = bossReward(b.lv)
+  const left = 7 - ((new Date(now()).getDay() + 6) % 7)
+  mkArtC(8, 't_boss')
+  mkText(30, 50, W - 60, 20, 15, LILAC, align.CENTER_H, 'new boss in ' + left + ' day' + (left > 1 ? 's' : ''))
+  mkArt(CX - 70, 72, 'plate140')
+  mkImg(CX - 64, 76, 'mon/' + b.sp + '.png')
+  mkTextS(30, 208, W - 60, 30, 24, WHITE, align.CENTER_H, SPECIES[b.sp].name + '  Lv ' + b.lv)
+  const text = b.won
+    ? 'Beaten this week! A new boss comes on Monday.'
+    : 'It gains a level for every ' + fmt(BOSS_STEPS_PER_LV) + ' steps you walk this week. Win: ' + rewardText(r.charms, r.gold, r.egg) + '.'
+  mkTextS(34, 238, W - 68, 74, fitSize(text, W - 68, 74, 17, 13), b.won ? GREEN : LILAC, align.CENTER_H, text)
+  mkArtButton(45, 316, b.won ? 'btn_fight_off' : 'btn_fight', fightBoss)
+  mkArtButton(95, 380, 'btn_back', () => home())
+}
+
+// ---------- coming up ----------
+// a seasonal event that starts within UPCOMING_DAYS days, for the den ('' if none)
+function upcoming() {
+  const t = new Date(now())
+  const easters = easterDays(t.getFullYear())
+  for (let k = 1; k <= UPCOMING_DAYS; k++) {
+    const d = new Date(t.getFullYear(), t.getMonth(), t.getDate() + k, 12)
+    const m = d.getMonth() + 1
+    const day = d.getDate()
+    const when = k === 1 ? 'tomorrow' : 'in ' + k + ' days'
+    const starts = (r) => r[0][0] === m && r[0][1] === day
+    if (starts(HALLOWEEN)) return 'Coming up: Halloween ones arrive ' + when
+    if (m === 12 && day === 1) return 'Coming up: December ones arrive ' + when
+    if (starts(NEWYEAR)) return 'Coming up: New Year ones ' + when
+    if (starts(VALENTINE)) return 'Coming up: Valentine\'s ones ' + when
+    if (starts(MIDSUMMER)) return 'Coming up: midsummer nights ' + when
+    if (easters.some((e) => dayKey(e.getTime() + EASTER_DAYS[0] * 86400000) === dayKey(d.getTime()))) return 'Coming up: Easter week starts ' + when
+    if (d.getDay() === 5 && day === 13) return 'Coming up: Friday the 13th ' + when
+  }
+  // full moon: tonight is not one yet, but a night in the next days is
+  const night = (k) => { const n = new Date(t.getFullYear(), t.getMonth(), t.getDate() + k, 23).getTime(); return Math.abs(moonAge(n) - 29.530588853 / 2) <= FULL_MOON_DAYS }
+  if (!night(0)) for (let k = 1; k <= UPCOMING_DAYS; k++) if (night(k)) return 'Coming up: full moon ' + (k === 1 ? 'tomorrow night' : 'in ' + k + ' days')
+  return ''
+}
+
+// a legend that may appear now, if any
+function legendReady() {
+  for (const id of BOOK) {
+    const s = SPECIES[id]
+    if (!s.legend || st.caught[id]) continue
+    if (s.legend === 'steps' && st.life.steps >= LEGEND_STEPS) return id
+    if (s.legend === 'streak' && streakNow() >= STREAK_DAYS && st.legendRest !== dayKey(now())) return id
+  }
+  return null
 }
 
 function enemyMon(sp, lv) {
@@ -1083,11 +1657,12 @@ function train() {
   const tm = trainMinutes()
   if (tm <= 0) return
   const m = leadMon()
-  const xp = tm * (TRAIN_XP_BASE + m.lv)
+  const used = Math.min(tm, TRAIN_XP_CAP_MIN)
+  const xp = used * (TRAIN_XP_BASE + m.lv)
   st.train.used += tm
   m.joy = clamp(m.joy + 5, 0, 100)
   const msgs = gainXp(m, xp)
-  notices.push({ title: 'TRAINING', text: tm + ' active minutes today!\n' + msgs.join('\n'), img: 'mon/' + m.sp + '.png' })
+  notices.push({ title: 'TRAINING', text: used + ' active minutes today' + (tm > used ? ' (' + TRAIN_XP_CAP_MIN + ' max)' : '') + '!\n' + msgs.join('\n'), img: 'mon/' + m.sp + '.png' })
   buzz('mid', 'other')
   home()
 }
@@ -1123,6 +1698,8 @@ function startBattle(enemy, dream) {
   B.over = false
   B.guard = { p: false, e: false }
   B.rests = { p: 0, e: 0 }
+  B.status = { p: null, e: null }
+  B.weather = battleWeather()
   B.blink = null
   B.later = []
   B.entered = false
@@ -1130,11 +1707,80 @@ function startBattle(enemy, dream) {
   B.shown.e = B.target.e = enemy.hp
   B.shown.p = B.target.p = activeMon().hp
   st.seen[enemy.sp] = true
-  say((dream ? 'A dreamy ' : 'A wild ') + SPECIES[enemy.sp].name + ' appeared!', null, 750)
-  // a compass fish points somewhere: face it, or it may swim away
+  say(enemy.boss ? 'BOSS ' + SPECIES[enemy.sp].name + ' steps up!' : (dream ? 'A dreamy ' : 'A wild ') + SPECIES[enemy.sp].name + ' appeared!', null, 750)
+  if (B.weather) say(weatherLine(B.weather), null, 1000)
+  // a compass creature points somewhere: face it, or it may get away
   B.needle = SPECIES[enemy.sp].cond === 'compass' ? randInt(0, 7) * 45 : null
   if (B.needle !== null) say('It points ' + DIR_WORDS[dirIndex(B.needle)] + '! Face it or it may flee', null, 1400)
   goto('battle')
+}
+
+// today's forecast in battle: 'rain' | 'sun' (daytime) | 'snow', or null
+function battleWeather() {
+  const k = weatherKind()
+  return k === 'rain' || k === 'snow' || (k === 'sun' && !isNight()) ? k : null
+}
+function weatherLine(w) {
+  const x = WEATHER[w]
+  return x.name + ': ' + ELEMENTS[x.boost].name + ' moves +' + pct(WEATHER_BOOST - 1) + ', ' + ELEMENTS[x.dampen].name + ' -' + pct(1 - WEATHER_DAMPEN)
+}
+function weatherMult(el) {
+  const x = B.weather && WEATHER[B.weather]
+  if (!x || !el) return 1
+  return el === x.boost ? WEATHER_BOOST : el === x.dampen ? WEATHER_DAMPEN : 1
+}
+// how well a move hits a creature: its element(s), the attacker's own-element bonus, the weather
+function hitMult(mvEl, me, foe) {
+  const f = SPECIES[foe.sp]
+  const own = mvEl && elementsOf(SPECIES[me.sp]).indexOf(mvEl) >= 0 ? SAME_ELEMENT_BONUS : 1
+  return effectiveness(mvEl, f.el, f.el2) * own * weatherMult(mvEl)
+}
+// a creature's element(s) as text: FIRE, or WATER/ELEC for two
+function elName(s) {
+  return s.el2 ? SHORT[s.el] + '/' + SHORT[s.el2] : ELEMENTS[s.el].name
+}
+
+// ---------- status: burn, freeze, sleep ----------
+const STATUS = {
+  burn: { label: 'BURN', color: 0xff8a3d, got: ' was burned!', end: "'s burn healed" },
+  freeze: { label: 'FROZEN', color: 0x8fe6ff, got: ' was frozen solid!', end: ' thawed out!' },
+  sleep: { label: 'ASLEEP', color: 0xc8c0ff, got: ' fell asleep!', end: ' woke up!' }
+}
+function canGetStatus(m, kind, side) {
+  if (B.status[side] || m.hp < 1) return false
+  const els = elementsOf(SPECIES[m.sp])
+  return !(kind === 'burn' && els.indexOf('fire') >= 0) && !(kind === 'freeze' && els.indexOf('ice') >= 0)
+}
+function applyStatus(side, m, kind) {
+  const turns = kind === 'burn' ? BURN_TURNS : kind === 'freeze' ? FREEZE_TURNS : randInt(SLEEP_TURNS[0], SLEEP_TURNS[1])
+  B.status[side] = { kind, turns }
+  const who = (side === 'e' ? 'Wild ' : '') + SPECIES[m.sp].name
+  say(who + STATUS[kind].got, () => popText(side, STATUS[kind].label, STATUS[kind].color), 800)
+}
+// a burned creature loses HP after it moves. Returns false when it fainted.
+function burnTick(side) {
+  const me = side === 'p' ? activeMon() : B.enemy
+  const b = B.status[side]
+  if (!b || b.kind !== 'burn' || me.hp < 1 || B.over) return true
+  const who = (side === 'e' ? 'Wild ' : '') + SPECIES[me.sp].name
+  const dmg = Math.max(1, Math.round(maxHp(me) * BURN_DMG))
+  me.hp = Math.max(0, me.hp - dmg)
+  const v = me.hp
+  say(who + ' is hurt by its burn', () => {
+    B.target[side] = v
+    popText(side, '-' + dmg, STATUS.burn.color)
+  }, 700)
+  b.turns--
+  if (b.turns <= 0 && me.hp >= 1) {
+    B.status[side] = null
+    say(who + STATUS.burn.end, null, 600)
+  }
+  if (me.hp < 1) {
+    if (side === 'e') enemyFainted()
+    else playerFainted()
+    return false
+  }
+  return true
 }
 
 // queue a battle message; fn runs when the message appears
@@ -1174,16 +1820,31 @@ function popText(side, text, color) {
   B.fx[side].pop = now()
 }
 
-// moves a widget with the X / Y properties (MORE as a fallback)
-function setPos(o, x, y) {
+// Moves a widget. Rects/rings use MORE; text/img use X/Y (safe across Zepp).
+function setPos(o, x, y, force) {
   x = Math.round(x)
   y = Math.round(y)
-  if (o.x === x && o.y === y) return
+  if (o.sh) setPos(o.sh, x + 1, y + 2, force)
+  if (!force && o.x === x && o.y === y) return
   try {
-    if (o.x !== x) o.w.setProperty(prop.X, x)
-    if (o.y !== y) o.w.setProperty(prop.Y, y)
+    if (o.b && o.t === undefined && o.src === undefined) {
+      if (force || o.b.x !== x || o.b.y !== y) {
+        o.b.x = x; o.b.y = y
+        o.w.setProperty(prop.MORE, o.b)
+      }
+    } else if (o.src !== undefined) {
+      if (force || o.x !== x) o.w.setProperty(prop.X, x)
+      if (force || o.y !== y) o.w.setProperty(prop.Y, y)
+    } else {
+      if (force || o.x !== x) o.w.setProperty(prop.X, x)
+      if (force || o.y !== y) o.w.setProperty(prop.Y, y)
+    }
   } catch (e) {
-    o.w.setProperty(prop.MORE, o.src !== undefined ? { x, y, src: o.src } : { x, y, w: o.pw, h: o.ph })
+    try {
+      if (o.b) o.w.setProperty(prop.MORE, Object.assign({}, o.b, { x, y }))
+      else if (o.src !== undefined) o.w.setProperty(prop.MORE, { x, y, src: o.src })
+      else o.w.setProperty(prop.MORE, { x, y, w: o.pw || o.w0 || 0, h: o.ph || o.h || 0 })
+    } catch (e2) {}
   }
   o.x = x
   o.y = y
@@ -1215,8 +1876,7 @@ function tickFx(t) {
       const k = 1 - et / ENTER_MS
       dx -= toward * k * k * 230
     }
-    // your side has one picture per party member: only the active one shows
-    if (side === 'p') u.pImgs.forEach((im, i) => i !== B.showIdx && setVisible(im, false))
+    // party-member visibility is handled by refreshPlayer(), not every tick
     const img = side === 'e' ? u.eImg : u.pImgs[B.showIdx]
     setPos(img, base.x + dx, base.y + dy)
     const blinkOff = B.blink && B.blink.side === side && B.blink.n > 0 && Math.floor(B.blink.n / 2) % 2 === 1
@@ -1251,7 +1911,7 @@ function buildBattle() {
   mkTextS(56, 36, 118, 30, 22, WHITE, align.LEFT, es.name)
   mkText(150, 36, 62, 30, 18, LILAC, align.RIGHT, 'Lv ' + e.lv)
   u.eBar = mkBar(40, 70, 168, 12, GREEN)
-  mkText(40, 86, 168, 20, 14, ELEMENTS[es.el].color, align.LEFT, ELEMENTS[es.el].name)
+  mkText(40, 86, 168, 20, 14, ELEMENTS[es.el].color, align.LEFT, elName(es))
   u.eHint = mkText(40, 86, 168, 20, 14, DIM, align.RIGHT, 'tap: stats')
   addTap(26, 32, 196, 78, openStats)
   u.eImg = mkImg(ENEMY_POS.x, ENEMY_POS.y, 'mon/' + e.sp + '.png')
@@ -1310,6 +1970,8 @@ function buildBattle() {
 function refreshPlayer() {
   const u = screen.ui
   if (screen.name !== 'battle') return
+  // only the active party member is drawn; B.showIdx changes only on a swap
+  u.pImgs.forEach((im, i) => setVisible(im, i === B.showIdx))
   const m = shownMon()
   const s = SPECIES[m.sp]
   setRect(u.pDot, { color: ELEMENTS[s.el].color })
@@ -1329,8 +1991,8 @@ function refreshPlayer() {
     const mv = MOVES[id]
     setArtButton(b, b.on, 'btn_move_' + (mv.el || 'none'))
     setText(b.txt, mv.name)
-    const eff = mv.kind === 'hit' ? effectiveness(mv.el, es.el) : 1
-    setText(b.tag, mv.kind === 'guard' ? 'BLOCK' : mv.kind === 'heal' ? 'HEAL' : eff > 1 ? 'STRONG' : eff < 1 ? 'WEAK' : 'POW ' + mv.pow)
+    const eff = mv.kind === 'hit' ? effectiveness(mv.el, es.el, es.el2) : 1
+    setText(b.tag, mv.kind === 'guard' ? 'BLOCK' : mv.kind === 'heal' ? 'HEAL' : mv.kind === 'status' ? STATUS[mv.status].label : eff > 1 ? 'STRONG' : eff < 1 ? 'WEAK' : 'POW ' + mv.pow)
     setTextColor(b.tag, eff > 1 ? 0x9cff8a : eff < 1 ? 0xffa0a0 : mv.kind === 'hit' ? 0xe0dcff : 0xa8e0ff)
   })
 }
@@ -1383,7 +2045,7 @@ function openStats() {
     const s = SPECIES[m.sp]
     setText(col.who, c === 0 ? 'YOURS' : 'WILD')
     setText(col.name, s.name)
-    setText(col.el, ELEMENTS[s.el].name + '  Lv ' + m.lv)
+    setText(col.el, elName(s) + '  Lv ' + m.lv)
     setTextColor(col.el, ELEMENTS[s.el].color)
     STAT_ROWS.forEach((r, i) => {
       const hidden = c === 1 && !known
@@ -1418,14 +2080,20 @@ function updateBattle() {
   setText(u.pHp, Math.ceil(B.shown.p) + ' / ' + pm)
   const ps = statsOf(m).spd
   const es = statsOf(e).spd
-  setText(u.order, ps > es ? 'FIRST' : ps < es ? 'SECOND' : 'SAME SPD')
+  const pst = B.status.p
+  setText(u.order, pst ? STATUS[pst.kind].label : ps > es ? 'FIRST' : ps < es ? 'SECOND' : 'SAME SPD')
   if (B.needle !== null) {
     const h = heading()
     const ok = h >= 0 && angleGap(h, B.needle) <= NEEDLE_TOLERANCE
     setText(u.eHint, h < 0 ? 'points ' + DIRS[dirIndex(B.needle)] + ' (no compass)' : (ok ? 'facing it! ' : 'face ') + DIRS[dirIndex(B.needle)])
     setTextColor(u.eHint, ok ? GREEN : ORANGE)
+  } else {
+    const est = B.status.e
+    // a two-element name is long: then the hint makes room
+    setText(u.eHint, est ? STATUS[est.kind].label : SPECIES[e.sp].el2 ? '' : 'tap: stats')
+    setTextColor(u.eHint, est ? STATUS[est.kind].color : DIM)
   }
-  setTextColor(u.order, ps > es ? GREEN : ps < es ? ORANGE : DIM)
+  setTextColor(u.order, pst ? STATUS[pst.kind].color : ps > es ? GREEN : ps < es ? ORANGE : DIM)
   const free = !B.busy && !B.over
   u.moves.forEach((b) => setArtButton(b, free && !!b.mv))
   setArtButton(u.catchBtn, free && st.charms > 0)
@@ -1435,12 +2103,14 @@ function updateBattle() {
 }
 
 function tickBattle(t) {
+  let dirty = false
   // effects scheduled a moment after a message (the hit lands after the lunge)
   if (B.later.length) {
     const due = B.later.filter((l) => t >= l.at)
     B.later = B.later.filter((l) => t < l.at)
     for (const l of due) l.fn()
     if (screen.name !== 'battle') return
+    dirty = true
   }
   // play the queued messages one by one
   if (t >= B.until && !B.later.length) {
@@ -1451,26 +2121,35 @@ function tickBattle(t) {
       if (screen.name !== 'battle') return
       if (q.text) setText(screen.ui.msg, q.text)
       B.until = t + q.ms
+      dirty = true
     } else if (B.busy) {
       B.busy = false
       setText(screen.ui.msg, 'What will ' + SPECIES[activeMon().sp].name + ' do?')
+      dirty = true
     }
   }
   // HP bars slide toward their new value
   for (const k of ['p', 'e']) {
     const d = B.target[k] - B.shown[k]
-    if (Math.abs(d) < 0.5) B.shown[k] = B.target[k]
-    else B.shown[k] += d * 0.25
+    if (d !== 0) {
+      B.shown[k] = Math.abs(d) < 0.5 ? B.target[k] : B.shown[k] + d * 0.25
+      dirty = true
+    }
   }
   tickFx(t)
-  updateBattle()
+  // compass creatures need a live heading; otherwise only redraw on a change
+  if (dirty || B.needle !== null) updateBattle()
 }
 
 function aiMove(e, foe) {
   const mvs = movesOf(e)
   const mx = maxHp(e)
-  if (mvs.indexOf('rest') >= 0 && e.hp < mx * AI_REST_BELOW && B.rests.e < RESTS_PER_BATTLE && Math.random() < 0.6) return 'rest'
+  // healing moves have different IDs (Rest, Long Nap): match by kind
+  const healMv = mvs.find((id) => MOVES[id].kind === 'heal')
+  if (healMv && e.hp < mx * AI_REST_BELOW && B.rests.e < RESTS_PER_BATTLE && Math.random() < 0.6) return healMv
   if (mvs.indexOf('guard') >= 0 && Math.random() < 0.12) return 'guard'
+  const sMv = mvs.find((id) => MOVES[id].kind === 'status')
+  if (sMv && canGetStatus(foe, MOVES[sMv].status, 'p') && Math.random() < 0.3) return sMv
   const hits = mvs.filter((id) => MOVES[id].kind === 'hit')
   if (!hits.length) return mvs[0]
   // young wild ones pick moves more randomly, so early fights are gentler
@@ -1479,7 +2158,7 @@ function aiMove(e, foe) {
   let bestV = -1
   for (const id of hits) {
     const mv = MOVES[id]
-    const v = mv.pow * (mv.acc / 100) * effectiveness(mv.el, SPECIES[foe.sp].el) * (mv.el === SPECIES[e.sp].el ? SAME_ELEMENT_BONUS : 1)
+    const v = mv.pow * (mv.acc / 100) * hitMult(mv.el, e, foe)
     if (v > bestV) {
       bestV = v
       best = id
@@ -1507,6 +2186,7 @@ function act(kind, mvId) {
     if (next < 0) return
     const old = activeMon()
     B.pIdx = next
+    B.status.p = null
     const m = activeMon()
     const hp = m.hp
     say('Come back, ' + SPECIES[old.sp].name + '!', () => (B.fx.p.vis = false), 650)
@@ -1519,7 +2199,7 @@ function act(kind, mvId) {
   save()
 }
 
-// Needlefin: if you were not facing where it points, it may swim away; then it turns
+// compass creatures: if you were not facing where it points, it may get away; then it turns
 function needleTurn() {
   const e = B.enemy
   if (B.needle === null || B.over || e.hp < 1) return
@@ -1527,7 +2207,7 @@ function needleTurn() {
   if (!facing(B.needle, NEEDLE_TOLERANCE)) {
     if (Math.random() < NEEDLE_FLEE) {
       B.over = true
-      say(name + ' swam away! Face where it points', () => (B.fx.e.vis = false), 1200)
+      say(name + ' ' + (SPECIES[e.sp].flee || 'swam away') + '! Face where it points', () => (B.fx.e.vis = false), 1200)
       say('', () => home(), 0)
       return
     }
@@ -1539,14 +2219,36 @@ function needleTurn() {
   say(name + ' now points ' + DIR_WORDS[dirIndex(next)] + '!', null, 1000)
 }
 
-// one creature uses one move. Returns false when someone fainted (the turn stops).
+// one creature uses one move, then a burn may hurt it. Returns false when someone fainted.
 function doMove(side, mvId) {
+  return doMoveOnly(side, mvId) && burnTick(side)
+}
+
+function doMoveOnly(side, mvId) {
   const me = side === 'p' ? activeMon() : B.enemy
   const foe = side === 'p' ? B.enemy : activeMon()
   const other = side === 'p' ? 'e' : 'p'
   if (me.hp < 1 || foe.hp < 1) return false
   const mv = MOVES[mvId]
   const who = (side === 'e' ? 'Wild ' : '') + SPECIES[me.sp].name
+  // asleep or frozen: this turn is skipped
+  const stt = B.status[side]
+  if (stt && stt.kind !== 'burn' && stt.turns > 0) {
+    stt.turns--
+    const k = STATUS[stt.kind]
+    say(who + (stt.kind === 'sleep' ? ' is fast asleep...' : ' is frozen and can\'t move!'), () => popText(side, k.label, k.color), 800)
+    if (stt.turns <= 0) {
+      B.status[side] = null
+      say(who + k.end, null, 650)
+    }
+    return true
+  }
+  if (mv.kind === 'status') {
+    say(who + ' used ' + mv.name + '!', () => (B.fx[side].lunge = now()))
+    if (Math.random() * 100 >= mv.acc || !canGetStatus(foe, mv.status, other)) say('...but nothing happened.', null, 650)
+    else applyStatus(other, foe, mv.status)
+    return true
+  }
   if (mv.kind === 'guard') {
     B.guard[side] = true
     say(who + ' used Guard!', () => popText(side, 'GUARD', BLUE))
@@ -1554,7 +2256,7 @@ function doMove(side, mvId) {
   }
   if (mv.kind === 'heal') {
     if (B.rests[side] >= RESTS_PER_BATTLE) {
-      say(who + ' is too restless to Rest')
+      say(who + ' is too restless to use ' + mv.name)
       return true
     }
     B.rests[side]++
@@ -1562,7 +2264,7 @@ function doMove(side, mvId) {
     const before = me.hp
     me.hp = Math.min(mx, me.hp + Math.ceil(mx * (mv.heal || REST_HEAL)))
     const v = me.hp
-    say(who + ' used Rest!')
+    say(who + ' used ' + mv.name + '!')
     say(who + ' feels better', () => {
       B.target[side] = v
       popText(side, '+' + Math.round(v - before), GREEN)
@@ -1579,11 +2281,12 @@ function doMove(side, mvId) {
   }
   const a = statsOf(me)
   const d = statsOf(foe)
-  const eff = effectiveness(mv.el, SPECIES[foe.sp].el)
-  const stab = mv.el && mv.el === SPECIES[me.sp].el ? SAME_ELEMENT_BONUS : 1
+  const fs = SPECIES[foe.sp]
+  const eff = effectiveness(mv.el, fs.el, fs.el2)
+  const stab = mv.el && elementsOf(SPECIES[me.sp]).indexOf(mv.el) >= 0 ? SAME_ELEMENT_BONUS : 1
   const crit = Math.random() < CRIT_CHANCE ? CRIT_MULT : 1
   let dmg = (((2 * me.lv) / 5 + 2) * mv.pow * (a.atk / d.def)) / 50 + 2
-  dmg *= eff * stab * crit * (0.85 + Math.random() * 0.15)
+  dmg *= eff * stab * weatherMult(mv.el) * crit * (0.85 + Math.random() * 0.15)
   if (B.guard[other]) dmg *= GUARD_TAKEN
   dmg = Math.max(1, Math.round(dmg))
   foe.hp = Math.max(0, foe.hp - dmg)
@@ -1608,6 +2311,8 @@ function doMove(side, mvId) {
   if (crit > 1) say('A critical hit!', null, 650)
   if (eff > 1) say("It's super effective!", null, 650)
   else if (eff < 1) say("It's not very effective...", null, 650)
+  // some moves can also burn or freeze
+  if (foe.hp >= 1 && mv.status && Math.random() < (mv.chance || 0) && canGetStatus(foe, mv.status, other)) applyStatus(other, foe, mv.status)
   if (foe.hp < 1) {
     if (other === 'e') enemyFainted()
     else playerFainted()
@@ -1619,11 +2324,24 @@ function doMove(side, mvId) {
 function enemyFainted() {
   const e = B.enemy
   B.over = true
-  say('Wild ' + SPECIES[e.sp].name + ' fainted!', () => {
+  say((e.boss ? 'The boss ' : 'Wild ') + SPECIES[e.sp].name + (e.boss ? ' is beaten!' : ' fainted!'), () => {
     B.fx.e.drop = now()
     buzz('mid', 'battle')
   })
-  const xp = Math.round((10 + e.lv * 7) * (SPECIES[e.sp].rare ? 1.5 : 1))
+  // a streak legend that faints flies off until tomorrow
+  if (SPECIES[e.sp].legend === 'streak') {
+    st.legendRest = dayKey(now())
+    say(SPECIES[e.sp].name + ' flew off... it will be back tomorrow.', null, 1000)
+  }
+  if (e.boss) {
+    const r = bossReward(e.lv)
+    st.bossWon = weekKey(now())
+    st.charms += r.charms
+    st.berries.gold += r.gold
+    if (r.egg) giveEgg()
+    say('Boss reward: ' + rewardText(r.charms, r.gold, r.egg) + '!', null, 1400)
+  }
+  const xp = Math.round((8 + e.lv * 6) * (SPECIES[e.sp].rare || e.boss ? 1.5 : 1) * (e.boss ? 2 : 1))
   const p = activeMon()
   p.joy = clamp(p.joy + 3, 0, 100)
   const msgs = gainXp(p, xp)
@@ -1659,6 +2377,7 @@ function playerFainted() {
   const next = nextHealthy(B.pIdx)
   if (next >= 0) {
     B.pIdx = next
+    B.status.p = null
     const hp = activeMon().hp
     say('Go, ' + SPECIES[activeMon().sp].name + '!', () => sendIn(next, hp))
     return
@@ -1680,6 +2399,7 @@ function run() {
 
 function tryCatch() {
   if (B.busy || B.over || st.charms <= 0) return
+  if (B.enemy.boss) return toast('A boss cannot be caught', GOLD)
   st.charms--
   goto('catch')
 }
@@ -1834,7 +2554,7 @@ function caught() {
     where = 'It joined your party!'
   }
   const p = activeMon()
-  const msgs = gainXp(p, Math.round((10 + e.lv * 7) / 2))
+  const msgs = gainXp(p, Math.round((8 + e.lv * 6) / 2))
   notices.push({
     title: (first ? 'NEW! ' : '') + SPECIES[e.sp].name,
     text: where + (first ? ' New entry in your book.' : '') + '\n' + msgs.join('\n'),
@@ -1935,12 +2655,12 @@ function buildTeam(page) {
     const slot = st.party.indexOf(m.id)
     if (slot >= 0) mkText(262, y + 36, 90, 26, 16, GOLD, align.RIGHT, slot === 0 ? 'LEAD' : 'PARTY')
     else if (m.full < HUNGRY_BELOW) mkText(262, y + 36, 90, 26, 16, ORANGE, align.RIGHT, 'HUNGRY')
-    addTap(28, y, W - 56, 72, () => goto('detail', { id: m.id, page }))
+    addTap(28, y, W - 56, 72, () => goto('detail', { id: m.id, page }, 1))
   })
   if (pages > 1) {
-    mkArtButton(50, 312, 'btn_prev', () => goto('team', (page + pages - 1) % pages))
+    mkArtButton(50, 312, 'btn_prev', () => goto('team', (page + pages - 1) % pages, -1))
     mkTextS(130, 312, 130, 50, 20, LILAC, align.CENTER_H, page + 1 + ' / ' + pages)
-    mkArtButton(260, 312, 'btn_next', () => goto('team', (page + 1) % pages))
+    mkArtButton(260, 312, 'btn_next', () => goto('team', (page + 1) % pages, 1))
   } else mkTextS(30, 312, W - 60, 50, 17, LILAC, align.CENTER_H, 'Tap a Wristling for details')
   mkArtButton(95, 368, 'btn_back', () => home())
 }
@@ -1964,7 +2684,7 @@ function buildDetail(arg) {
   row(230, 'XP', m.lv >= MAX_LV ? 1 : m.xp / xpNext(m.lv), BLUE, m.lv >= MAX_LV ? 'MAX' : Math.floor((m.xp / xpNext(m.lv)) * 100) + '%')
   row(248, 'FOOD', m.full / 100, ORANGE, Math.round(m.full) + '')
   row(266, 'JOY', m.joy / 100, PINK, Math.round(m.joy) + '')
-  mkText(24, 276, W - 48, 22, 16, WHITE, align.CENTER_H, 'ATK ' + st2.atk + '   DEF ' + st2.def + '   SPD ' + st2.spd + (s.evo ? '   evolves Lv ' + s.evoLv + (s.evoPai ? ' + ' + s.evoPai + ' PAI' : '') : ''))
+  mkText(24, 276, W - 48, 22, 16, WHITE, align.CENTER_H, 'ATK ' + st2.atk + '   DEF ' + st2.def + '   SPD ' + st2.spd + (s.evo ? '   evolves Lv ' + s.evoLv + (s.evoPai ? ' + ' + s.evoPai + ' PAI' : '') + (s.evoSteps ? ' + ' + fmt(s.evoSteps) + ' steps' : '') : ''))
   mkText(24, 296, W - 48, 22, 16, LILAC, align.CENTER_H, movesOf(m).map((id) => MOVES[id].name).join('  /  '))
   const slot = st.party.indexOf(m.id)
   mkArtButton(34, 322, slot === 0 ? 'btn_leader' : 'btn_lead', () => {
@@ -1972,7 +2692,8 @@ function buildDetail(arg) {
     st.party = st.party.filter((x) => x !== m.id)
     st.party.unshift(m.id)
     if (st.party.length > PARTY_MAX) st.party.pop()
-    goto('detail', arg)
+    save() // detail is read-only-screen cached, so persist party edits here
+    goto('detail', arg, 1)
   })
   mkArtButton(143, 322, slot >= 0 ? 'btn_bench' : 'btn_join', () => {
     if (slot >= 0) {
@@ -1982,10 +2703,11 @@ function buildDetail(arg) {
       if (st.party.length >= PARTY_MAX) return toast('Party is full (3). BENCH one first', GOLD)
       st.party.push(m.id)
     }
-    goto('detail', arg)
+    save() // detail is read-only-screen cached, so persist party edits here
+    goto('detail', arg, 1)
   })
-  mkArtButton(252, 322, 'btn_feed_s', () => goto('feed', { id: m.id, back: 'detail', page: arg.page }))
-  mkArtButton(95, 376, 'btn_back', () => goto('team', arg.page))
+  mkArtButton(252, 322, 'btn_feed_s', () => goto('feed', { id: m.id, back: 'detail', page: arg.page }, 1))
+  mkArtButton(95, 376, 'btn_back', () => gotoBack('team', arg.page))
 }
 
 // ---------- feeding ----------
@@ -2009,7 +2731,7 @@ function buildFeed(arg) {
   })
   u.hint = mkTextS(24, 330, W - 48, 30, 18, LILAC, align.CENTER_H, 'Tap a berry to feed')
   mkArtButton(95, 368, 'btn_back', () => {
-    if (arg.back === 'detail') goto('detail', { id: m.id, page: arg.page })
+    if (arg.back === 'detail') gotoBack('detail', { id: m.id, page: arg.page })
     else home()
   })
   updateFeed()
@@ -2064,11 +2786,22 @@ function condText(c) {
   if (c === 'sun') return 'Only on sunny days, in daylight (06:00 - 20:00).'
   if (c === 'kcal') return 'Only after you burn ' + fmt(KCAL_SPAWN) + ' kcal in a day.'
   if (c === 'weekend') return 'Only on Saturday and Sunday, 12:00 - 18:00.'
-  if (c === 'dark') return 'Only in the dark: the watch light sensor must read under ' + DARK_LUX + ' lux (a dark room, under a blanket, outside at night).'
   if (c === 'mist') return 'On foggy or hazy days, or at night after ' + fmt(MIST_NIGHT_STEPS) + ' steps that day.'
   if (c === 'north') return 'Point the top of your watch NORTH when you tap EXPLORE. The den shows which way you face.'
   if (c === 'dawn') return 'Point the top of your watch EAST when you explore, between 05:00 and 09:00.'
-  if (c === 'compass') return 'Anywhere, if your watch has a calibrated compass. In battle it points somewhere: face that way or it may swim away.'
+  if (c === 'compass') return 'Anywhere, if your watch has a calibrated compass. In battle it points somewhere: face that way or it may get away.'
+  if (c === 'dusk') return 'Point the top of your watch WEST when you explore, between ' + DUSK_HOURS[0] + ':00 and ' + DUSK_HOURS[1] + ':00.'
+  if (c === 'south') return 'Point the top of your watch SOUTH when you explore, between ' + NOON_HOURS[0] + ':00 and ' + NOON_HOURS[1] + ':00.'
+  if (c === 'spin') return 'With the den open, turn around in a full circle, then tap EXPLORE within ' + SPIN_WINDOW_MS / 1000 + ' seconds. The den says "spun!".'
+  if (c === 'steady') return 'With the den open, keep the watch pointing the same way for ' + STEADY_MS / 1000 + ' seconds, then tap EXPLORE. The den says "steady".'
+  if (c === 'battery') return 'Only when your watch battery is under ' + LOW_BATTERY + '%.'
+  if (c === 'halloween') return 'Only from ' + HALLOWEEN[0][1] + ' ' + MONTHS[HALLOWEEN[0][0] - 1] + ' to ' + HALLOWEEN[1][1] + ' ' + MONTHS[HALLOWEEN[1][0] - 1] + '.'
+  if (c === 'december') return 'Only in December.'
+  if (c === 'easter') return 'Only in Easter week: from Palm Sunday to Easter Monday (Western or Orthodox Easter).'
+  if (c === 'newyear') return 'Only around New Year: ' + dateRange(NEWYEAR) + '.'
+  if (c === 'valentine') return 'Only around Valentine\'s Day: ' + dateRange(VALENTINE) + '.'
+  if (c === 'midsummer') return 'Only on midsummer nights: ' + dateRange(MIDSUMMER) + '.'
+  if (c === 'friday13') return 'Only on a Friday the 13th.'
   return ''
 }
 
@@ -2081,11 +2814,15 @@ function findText(id, worst) {
     const p = SPECIES[PRE[id]]
     // name the earlier form only once you have met it yourself (no spoilers)
     const metPre = !worst && (st.seen[PRE[id]] || st.caught[PRE[id]])
-    parts.push('Evolves from ' + (metPre ? p.name : "one you haven't met yet") + ' at Lv ' + p.evoLv + (p.evoPai ? ' with ' + p.evoPai + '+ weekly PAI' : '') + '. Also wild once your lead is Lv ' + WILD_EVOLVED_LV + '+.')
+    parts.push('Evolves from ' + (metPre ? p.name : "one you haven't met yet") + ' at Lv ' + p.evoLv + (p.evoPai ? ' with ' + p.evoPai + '+ weekly PAI' : '') + (p.evoSteps ? ' after walking ' + fmt(p.evoSteps) + ' steps as your lead' : '') + '. Also wild once your lead is Lv ' + (PRE[PRE[id]] ? WILD_FINAL_LV : WILD_EVOLVED_LV) + '+.')
   }
   if (s.dream) parts.push('Rare. After a night with lots of REM sleep it may wait as a DREAM VISITOR in the morning.')
-  else if (id === 'solarion') parts.push('Rare. Only between 11:00 and 14:00, in ' + pct(RARE_NOON_CHANCE) + ' of explores.')
-  else if (id === 'boulderon') parts.push('Rare. Only after ' + fmt(RARE_WALK_STEPS) + ' steps in a day, in ' + pct(RARE_WALK_CHANCE) + ' of explores.')
+  else if (s.legend === 'steps') parts.push('LEGEND, only one. Appears once the game has counted ' + fmt(LEGEND_STEPS) + ' of your steps (' + (worst ? fmt(LEGEND_STEPS) : fmt(st.life.steps)) + ' so far), in ' + pct(LEGEND_CHANCE) + ' of explores.')
+  else if (s.legend === 'streak') parts.push('LEGEND, only one. Appears after a ' + STREAK_DAYS + '-day streak of ' + fmt(STREAK_STEPS) + '+ steps a day (now ' + (worst ? STREAK_DAYS : streakNow()) + '), in ' + pct(LEGEND_CHANCE) + ' of explores. If it faints it is back tomorrow.')
+  else if (RARES.some((r) => r.id === id)) {
+    const r = RARES.find((x) => x.id === id)
+    parts.push('Rare. ' + r.text + ', in ' + pct(r.chance) + ' of explores.')
+  }
   if (s.cond) parts.push(condText(s.cond) + ((s.condWeight || COND_WEIGHT) > 1 ? ' Easier to meet while that lasts.' : ''))
   if (s.time === 'night') parts.push('Only at night (20:00 - 06:00).' + (s.el === 'shadow' ? ' Shadow ones are 3x as likely then.' : ''))
   if (STARTERS.indexOf(id) >= 0) parts.push('One of the three starters.')
@@ -2095,14 +2832,15 @@ function findText(id, worst) {
 
 function buildBook(arg) {
   const per = 12
-  const pages = Math.ceil(BOOK.length / per)
+  const pages = Math.ceil(BOOK.length / per) + 1 // the last page: badges and rewards
   const info = arg && typeof arg === 'object' ? arg.info : null
   let page = arg && typeof arg === 'object' ? arg.page : arg
   page = clamp(page || 0, 0, pages - 1)
   const caughtN = BOOK.filter((id) => st.caught[id]).length
   mkArtC(2, 't_book')
   mkText(40, 46, W - 80, 20, 15, LILAC, align.CENTER_H, 'caught ' + caughtN + ' / ' + BOOK.length + '  -  tap one for details')
-  BOOK.slice(page * per, page * per + per).forEach((id, i) => {
+  if (page === pages - 1) buildRewards()
+  else BOOK.slice(page * per, page * per + per).forEach((id, i) => {
     const x = 37 + (i % 4) * 80
     const y = 68 + Math.floor(i / 4) * 82
     mkArt(x, y, 'pnl_cell')
@@ -2110,13 +2848,27 @@ function buildBook(arg) {
     const seen = caught || st.seen[id]
     mkImg(x + 6, y + 2, 'mon/' + id + (caught ? '_s' : '_x') + '.png')
     mkText(x, y + 60, 76, 20, 13, caught ? WHITE : seen ? LILAC : DIM, align.CENTER_H, seen ? SPECIES[id].name : '???')
-    addTap(x, y, 76, 80, () => goto('book', { page, info: id }))
+    addTap(x, y, 76, 80, () => goto('book', { page, info: id }, 1))
   })
-  mkArtButton(50, 316, 'btn_prev', () => goto('book', (page + pages - 1) % pages))
+  mkArtButton(50, 316, 'btn_prev', () => goto('book', (page + pages - 1) % pages, -1))
   mkTextS(130, 316, 130, 50, 20, LILAC, align.CENTER_H, page + 1 + ' / ' + pages)
-  mkArtButton(260, 316, 'btn_next', () => goto('book', (page + 1) % pages))
+  mkArtButton(260, 316, 'btn_next', () => goto('book', (page + 1) % pages, 1))
   mkArtButton(95, 372, 'btn_back', () => home())
   if (info) buildBookPage(info, page)
+}
+
+// the book's last page: a badge per category, and the next reward
+function buildRewards() {
+  const size = pageTextSize()
+  BADGES.forEach((b, i) => {
+    const [got, all] = badgeCount(b)
+    const done = !!st.badges[b.id]
+    const y = 70 + i * 26
+    mkText(44, y, 220, 24, size, done ? GOLD : LILAC, align.LEFT, (done ? 'BADGE  ' : '') + b.name)
+    mkText(250, y, 96, 24, size, done ? GOLD : WHITE, align.RIGHT, got + ' / ' + all)
+  })
+  const nx = nextMilestone()
+  mkTextS(24, 274, W - 48, 42, size, GREEN, align.CENTER_H, nx ? 'At ' + nx[0] + ' caught: ' + rewardText(nx[1], nx[2], nx[3]) : 'Every book reward collected!')
 }
 
 // one creature's page, on top of the grid (a tap anywhere closes it)
@@ -2146,11 +2898,11 @@ function buildBookPage(id, page) {
   else mkImg(CX - 32, 58, 'mon/' + id + '_x.png')
   mkTextS(30, 162, W - 60, 30, 26, caught ? WHITE : seen ? LILAC : DIM, align.CENTER_H, seen ? s.name : '???')
   const status = caught ? 'CAUGHT' : seen ? 'MET, NOT CAUGHT YET' : 'NOT MET YET'
-  mkText(30, 190, W - 60, 20, 15, caught ? GREEN : seen ? GOLD : DIM, align.CENTER_H, status + (seen ? '   ' + ELEMENTS[s.el].name + '   ' + RARITY[rarityOf(id)].name : ''))
+  mkText(30, 190, W - 60, 20, 15, caught ? GREEN : seen ? GOLD : DIM, align.CENTER_H, status + (seen ? '   ' + elName(s) + '   ' + (s.legend ? 'LEGEND' : RARITY[rarityOf(id)].name) : ''))
   mkText(30, 210, W - 60, 22, 15, GOLD, align.CENTER_H, 'WHERE TO FIND IT')
   mkText(BOOK_BOX.x, BOOK_BOX.y, BOOK_BOX.w, BOOK_BOX.h, pageTextSize(), WHITE, align.CENTER_H, findText(id))
   mkText(30, 390, W - 60, 22, 14, DIM, align.CENTER_H, 'tap anywhere to close')
-  addTap(0, 0, W, H, () => goto('book', page))
+  addTap(0, 0, W, H, () => gotoBack('book', page))
 }
 
 // ---------- settings (swipe up on the den) ----------
@@ -2172,7 +2924,7 @@ function buildSettings() {
     mkArtButton(258, y + 14, on ? 'tgl_on' : 'tgl_off', () => {
       st.settings[r.key] = !on
       save()
-      goto('settings')
+      goto('settings', undefined, 1)
       // a little buzz so you feel it is back on
       if (!on) buzz('mid', r.cat)
     })
@@ -2235,11 +2987,22 @@ function guideCond(c) {
   if (c === 'sun') return 'Sunny days, in daylight'
   if (c === 'kcal') return 'After you burn ' + fmt(KCAL_SPAWN) + ' kcal in a day'
   if (c === 'weekend') return 'Weekend afternoons (Sat / Sun 12:00 - 18:00)'
-  if (c === 'dark') return 'In the dark (watch light sensor)'
   if (c === 'mist') return 'Fog or haze, or nights after ' + fmt(MIST_NIGHT_STEPS) + ' steps'
   if (c === 'north') return 'Watch pointing NORTH when you explore'
   if (c === 'dawn') return 'Watch pointing EAST, 05:00 - 09:00'
   if (c === 'compass') return 'Any time with a compass; in battle, face where it points'
+  if (c === 'dusk') return 'Watch pointing WEST, ' + DUSK_HOURS[0] + ':00 - ' + DUSK_HOURS[1] + ':00'
+  if (c === 'south') return 'Watch pointing SOUTH, ' + NOON_HOURS[0] + ':00 - ' + NOON_HOURS[1] + ':00'
+  if (c === 'spin') return 'Turn a full circle on the den, then explore'
+  if (c === 'steady') return 'Hold the watch still one way, then explore'
+  if (c === 'battery') return 'Watch battery under ' + LOW_BATTERY + '%'
+  if (c === 'halloween') return HALLOWEEN[0][1] + ' ' + MONTHS[HALLOWEEN[0][0] - 1] + ' - ' + HALLOWEEN[1][1] + ' ' + MONTHS[HALLOWEEN[1][0] - 1]
+  if (c === 'december') return 'In December'
+  if (c === 'easter') return 'Easter week (Western or Orthodox)'
+  if (c === 'newyear') return 'New Year, ' + dateRange(NEWYEAR)
+  if (c === 'valentine') return 'Valentine\'s, ' + dateRange(VALENTINE)
+  if (c === 'midsummer') return 'Midsummer nights, ' + dateRange(MIDSUMMER)
+  if (c === 'friday13') return 'Any Friday the 13th'
   return c
 }
 
@@ -2258,12 +3021,21 @@ function realWorldPages() {
   return pages
 }
 
+// "Most evolve twice: at Lv 12-16, then again at Lv 28." (built from the data)
+function evoStepsText() {
+  const first = BOOK.filter((id) => SPECIES[id].evo && !PRE[id]).map((id) => SPECIES[id].evoLv)
+  const second = BOOK.filter((id) => SPECIES[id].evo && PRE[id]).map((id) => SPECIES[id].evoLv)
+  if (!second.length) return ''
+  const range = (a) => (Math.min(...a) === Math.max(...a) ? String(a[0]) : Math.min(...a) + '-' + Math.max(...a))
+  return 'Most evolve twice: at Lv ' + range(first) + ', then again at Lv ' + range(second) + '.\n'
+}
+
 function guidePages() {
   const pages = [
     {
       title: 'WELCOME',
       text:
-        'Wristlings live on your wrist.\n\nWalk to earn TRACKS. Spend a track on EXPLORE to meet a wild Wristling, then battle it, catch it, feed it and help it evolve.\n\nSwipe left / right (or tap the arrows) to turn pages.\n\nSwipe UP on the den for SETTINGS (vibrations, reset).'
+        'Wristlings live on your wrist.\n\nWalk to earn TRACKS. Spend a track on EXPLORE to meet a wild Wristling, then battle it, catch it, feed it and help it evolve.\n\nDrag up or down to scroll this guide. Swipe RIGHT to go back.\n\nSwipe UP on the den for SETTINGS (vibrations, reset).'
     },
     {
       title: 'WALKING',
@@ -2278,7 +3050,7 @@ function guidePages() {
     {
       title: 'HEART & SLEEP',
       text:
-        'TRAIN: minutes today with your pulse well above resting become XP for your LEAD (each minute = ' + TRAIN_XP_BASE + ' + its level XP).\n\n' +
+        'TRAIN: minutes today with your pulse well above resting become XP for your LEAD (each minute = ' + TRAIN_XP_BASE + ' + its level XP, up to ' + TRAIN_XP_CAP_MIN + ' min/day).\n\n' +
         'SLEEP: ' + GOOD_SLEEP_MIN / 60 + 'h or more fully heals the team and adds JOY. Lots of REM sleep can bring a rare DREAM VISITOR in the morning.'
     },
     {
@@ -2312,6 +3084,22 @@ function guidePages() {
     },
     { title: 'ELEMENTS', chart: true },
     {
+      title: 'STATUS',
+      text:
+        'BURN: loses ' + pct(BURN_DMG) + ' of its HP after each of its moves, for ' + BURN_TURNS + ' turns.\n' +
+        'FREEZE: skips its next turn.\n' +
+        'SLEEP: skips ' + SLEEP_TURNS[0] + ' to ' + SLEEP_TURNS[1] + ' turns.\n\n' +
+        'Some FIRE moves can burn and some ICE moves can freeze. FIRE ones never burn, ICE ones never freeze.\n\n' +
+        'One status at a time. Swapping out clears it.'
+    },
+    {
+      title: 'WEATHER',
+      text:
+        'Battles use today\'s forecast:\n' +
+        Object.keys(WEATHER).map((w) => weatherLine(w)).join('\n') +
+        '\n\nSome Wristlings have TWO elements: both count, but a hit is never more than one STRONG (x' + SUPER_MULT + ') or one WEAK (x' + WEAK_MULT + '). Moves of either element get the own-element bonus.'
+    },
+    {
       title: 'CATCHING',
       text:
         'Tap CATCH (uses a charm). After 3-2-1-GO, tap when the rings meet.\n\n' +
@@ -2333,20 +3121,57 @@ function guidePages() {
       text:
         'FOOD drops ' + FULL_DECAY_PER_HOUR + ' an hour. Below ' + HUNGRY_BELOW + ' = HUNGRY: -' + pct(MOOD_EFFECT) + ' power.\n' +
         'JOY ' + HAPPY_FROM + '+ = HAPPY: +' + pct(MOOD_EFFECT) + ' power.\n\n' +
-        'Each species has a FAVOURITE berry: +' + FAV_FULL_BONUS + ' food, +' + FAV_JOY_BONUS + ' joy extra. Feeding also heals ' + pct(FEED_HEAL) + '.\n\n' +
+        'Each species has a FAVOURITE berry: +' + FAV_FULL_BONUS + ' food, +' + FAV_JOY_BONUS + ' joy extra. Feeding also heals ' + pct(FEED_HEAL) + '.'
+    },
+    {
+      title: 'EVOLVING',
+      text:
+        evoStepsText() + '\n' +
         'Evolving needs the right level AND ' + EVOLVE_JOY + '+ JOY.' +
         (BOOK.some((id) => SPECIES[id].evoPai)
           ? ' A few also need ' + Math.min(...BOOK.filter((id) => SPECIES[id].evoPai).map((id) => SPECIES[id].evoPai)) + '+ weekly PAI (the book says which).'
-          : '')
+          : '') +
+        (BOOK.some((id) => SPECIES[id].evoSteps) ? ' One must walk ' + fmt(Math.min(...BOOK.filter((id) => SPECIES[id].evoSteps).map((id) => SPECIES[id].evoSteps))) + ' steps as your lead.' : '')
     },
     {
       title: 'WHEN & WHERE',
       text:
         'NIGHT: some Wristlings only come out from 20:00 to 06:00, and all SHADOW ones are 3x as likely then.\n\n' +
-        'EVOLVED forms show up wild once your lead is Lv ' + WILD_EVOLVED_LV + '+.\n\n' +
-        'RARE: one only at noon (11:00 - 14:00), one only after ' + fmt(RARE_WALK_STEPS) + ' steps in a day, and one visits after a night with lots of REM sleep.'
+        'EVOLVED forms show up wild once your lead is Lv ' + WILD_EVOLVED_LV + '+, fully evolved ones from Lv ' + WILD_FINAL_LV + '+.'
+    },
+    {
+      title: 'RARE ONES',
+      text: 'Each RARE one comes only at its moment:\n' + RARES.map((r) => '- ' + r.guide).join('\n') + '\n- a night of lots of REM sleep\nThen in ' + pct(Math.min(...RARES.map((r) => r.chance))) + ' - ' + pct(Math.max(...RARES.map((r) => r.chance))) + ' of explores.'
+    },
+    {
+      title: 'LEGENDS',
+      text:
+        'Two LEGENDS, one of each per player:\n\n' +
+        '- one after the game has counted ' + fmt(LEGEND_STEPS) + ' of your steps\n' +
+        '- one after a ' + STREAK_DAYS + '-day streak of ' + fmt(STREAK_STEPS) + '+ steps a day (miss a day and the streak starts again)\n\n' +
+        'Then they appear in ' + pct(LEGEND_CHANCE) + ' of explores. Their book pages show your progress.'
     },
     ...realWorldPages(),
+    {
+      title: 'EGGS',
+      text:
+        'Walk ' + fmt(EGG_FIND_STEPS) + ' steps in a day to find an EGG (one a day). It sits next to your lead on the den.\n\n' +
+        'It hatches after you walk ' + fmt(EGG_HATCH_STEPS) + ' more steps: tap it when it glows. Usually it is one you have not caught yet. Rare and seasonal ones never hatch.\n\n' +
+        'Eggs won while you carry one wait their turn.'
+    },
+    {
+      title: 'BOOK REWARDS',
+      text:
+        'Creatures caught:\n' +
+        MILESTONES.map((x) => x[0] + ': ' + x[1] + ' charms' + (x[2] ? ', ' + x[2] + ' gold' : '') + (x[3] ? ', an EGG' : '')).join('\n') + '\n\n' +
+        'A BADGE for each of the ' + BADGES.length + ' categories you complete: ' + BADGE_CHARMS + ' charms, ' + BADGE_GOLD + ' gold. See the last book page.'
+    },
+    {
+      title: 'WEEKLY BOSS',
+      text:
+        'Swipe RIGHT on the den. A new boss every Monday, starting at Lv ' + BOSS_MIN_LV + '. It gains a level for every ' + fmt(BOSS_STEPS_PER_LV) + ' steps you walk that week: fight it early, or walk more for a bigger reward.\n\n' +
+        'It has ' + Math.round((BOSS_HP_MULT - 1) * 100) + '% more HP and cannot be caught. Beat it once a week for charms, Gold Berries, and an EGG from Lv ' + BOSS_EGG_LV + '.'
+    },
     {
       title: 'TIPS',
       text:
@@ -2361,27 +3186,189 @@ function guidePages() {
   return pages
 }
 
-function buildGuide(page) {
+// (removed: the old wrapped-text helpers; the pooled guide scroller lays out its own rows)
+
+// Guide: fixed chrome + fixed row pool. Only row content/style changes on scroll;
+// no background/title/button/widget movement.
+function guideWrap(text, w, size) {
+  const perLine = Math.max(1, Math.floor(w / (size * CHAR_W)))
+  const out = []
+  for (const para of String(text).split('\n')) {
+    if (para === '') { out.push(''); continue }
+    let line = ''
+    for (const word of para.split(/\s+/)) {
+      if (!word) continue
+      const next = line ? line + ' ' + word : word
+      if (next.length <= perLine) { line = next; continue }
+      if (line) out.push(line)
+      if (word.length > perLine) {
+        let i = 0
+        while (i + perLine < word.length) { out.push(word.slice(i, i + perLine)); i += perLine }
+        line = word.slice(i)
+      } else line = word
+    }
+    out.push(line)
+  }
+  return out.length ? out : ['']
+}
+
+function buildGuideRows() {
+  const rows = []
+  const pushSpacer = (n) => { for (let i = 0; i < (n || 1); i++) rows.push({ type: 'spacer' }) }
+  const pushTitle = (text) => rows.push({ type: 'title', text })
+  const pushText = (text, color) => {
+    for (const line of guideWrap(text, W - 66, 15)) rows.push({ type: 'text', text: line, color: color || WHITE })
+  }
   const pages = guidePages()
-  page = clamp(page || 0, 0, pages.length - 1)
-  screen.arg = page
-  const p = pages[page]
-  mkTextS(40, 8, W - 80, 38, 28, GOLD, align.CENTER_H, p.title)
-  mkText(40, 42, W - 80, 20, 14, LILAC, align.CENTER_H, page + 1 + ' / ' + pages.length)
-  if (p.chart) {
-    // one row per element: what it beats
-    Object.keys(ELEMENTS).forEach((el, i) => {
-      const y = 70 + i * 30
-      const e = ELEMENTS[el]
-      mkRect(30, y + 9, 10, 10, e.color, 5)
-      mkTextS(46, y, 96, 28, 17, e.color, align.LEFT, e.name)
-      mkText(140, y, 222, 28, 15, WHITE, align.LEFT, 'beats ' + STRONG[el].map((x) => ELEMENTS[x].name).join(' '))
-    })
-    mkText(24, 312, W - 48, 50, 15, LILAC, align.CENTER_H, 'Beats = x' + SUPER_MULT + ' damage. Hitting the same element, or one that beats yours = x' + WEAK_MULT)
-  } else mkTextS(GUIDE_BOX.x, GUIDE_BOX.y, GUIDE_BOX.w, GUIDE_BOX.h, pageTextSize(), WHITE, align.CENTER_H, p.text)
-  mkArtButton(30, 370, 'btn_prev', () => goto('guide', page - 1))
-  mkArtButton(120, 370, 'btn_back_s', () => home())
-  mkArtButton(280, 370, 'btn_next', () => goto('guide', page + 1))
+  for (let i = 0; i < pages.length; i++) {
+    const p = pages[i]
+    if (i > 0) pushSpacer(1)
+    pushTitle(p.title)
+    if (p.chart) {
+      for (const el of Object.keys(ELEMENTS)) {
+        const beats = STRONG[el].map((x) => ELEMENTS[x].name).join(', ')
+        rows.push({ type: 'element', el, text: ELEMENTS[el].name + ' beats ' + beats })
+      }
+      pushSpacer(1)
+      pushText('Beats = x' + SUPER_MULT + ' damage.', GOLD)
+      pushText('Same, or beats yours = x' + WEAK_MULT + '.', DIM)
+    } else {
+      pushText(p.text, WHITE)
+    }
+  }
+  pushSpacer(2)
+  return rows
+}
+
+// the guide copy is static for the session: wrap it once, not on every open
+let guideRowsCache = null
+function getGuideRows() {
+  if (!guideRowsCache) guideRowsCache = buildGuideRows()
+  return guideRowsCache
+}
+
+function guideLineStart(g, scroll) {
+  return g.lineH ? clamp(Math.floor(scroll / g.lineH), 0, g.maxStart) : 0
+}
+
+function updateGuideThumb(g) {
+  const trackH = g.viewH - 8
+  const total = g.rows.length
+  const visible = g.pool.length
+  const thumbH = total > visible ? Math.max(24, Math.round(trackH * visible / total)) : trackH
+  const ty = g.viewY + 4 + (g.max ? Math.round(g.scroll / g.max * (trackH - thumbH)) : 0)
+  setRect(g.thumb, { y: ty, h: thumbH })
+}
+
+function setGuideScroll(v) {
+  const g = screen.guide
+  if (!g) return
+  g.scroll = clamp(Math.round(v), 0, g.max)
+  const start = guideLineStart(g, g.scroll)
+  const rowsChanged = start !== g.lastStart
+  g.lastStart = start
+
+  // Rows are line-snapped: sub-line movement only moves the thumb.
+  // Rewriting all 15 text slots on every animation frame is what stalls.
+  // Text slots stay visible: clearing a spacer with '' avoids native VISIBLE
+  // toggles, and style + text go out together in one prop.MORE call.
+  if (rowsChanged) {
+    for (let i = 0; i < g.pool.length; i++) {
+      const slot = g.pool[i]
+      const row = g.rows[start + i]
+      if (!row || row.type === 'spacer') {
+        setVisible(slot.dot, false)
+        setText(slot.text, '')
+        // keep the style blob in sync so the next identical row still draws
+        if (slot.text.tp) slot.text.tp.text = ''
+        continue
+      }
+      if (row.type === 'title') {
+        setVisible(slot.dot, false)
+        setTextStyle(slot.text, { x: 28, y: slot.y, w: W - 66, h: 20, align_h: align.CENTER_H, align_v: align.CENTER_V, text_size: 19, color: GOLD, text: row.text })
+        slot.text.t = row.text
+      } else if (row.type === 'text') {
+        setVisible(slot.dot, false)
+        setTextStyle(slot.text, { x: 28, y: slot.y, w: W - 66, h: 20, align_h: align.LEFT, align_v: align.CENTER_V, text_size: 15, color: row.color || WHITE, text: row.text })
+        slot.text.t = row.text
+      } else if (row.type === 'element') {
+        const color = (ELEMENTS[row.el] && ELEMENTS[row.el].color) || WHITE
+        setRect(slot.dot, { x: 30, y: slot.y + 3, w: 14, h: 14, radius: 7, color })
+        setVisible(slot.dot, true)
+        setTextStyle(slot.text, { x: 50, y: slot.y, w: W - 88, h: 20, align_h: align.LEFT, align_v: align.CENTER_V, text_size: 15, color: WHITE, text: row.text })
+        slot.text.t = row.text
+      }
+    }
+  }
+
+  updateGuideThumb(g)
+}
+
+function animateGuideScroll(deltaLines) {
+  const g = screen.guide
+  if (!g || !g.max) return
+  scrollAnim = { from: g.scroll, to: clamp(g.scroll + deltaLines, 0, g.max), t0: now() }
+}
+
+function tickScroll(t) {
+  if (slide || screen.name !== 'guide' || !scrollAnim) return
+  const p = clamp((t - scrollAnim.t0) / 220, 0, 1)
+  setGuideScroll(scrollAnim.from + (scrollAnim.to - scrollAnim.from) * ease(p))
+  if (p >= 1) scrollAnim = null
+}
+
+function buildGuide() {
+  const viewY = 44
+  const viewH = 312
+  const lineH = 20
+
+  mkTextS(34, 2, W - 68, 38, 27, GOLD, align.CENTER_H, 'GUIDE')
+
+  const rows = getGuideRows()
+  const poolSize = Math.floor(viewH / lineH)
+  const maxStart = Math.max(0, rows.length - poolSize)
+  const g = {
+    scroll: 0, // pixels
+    max: maxStart * lineH, // pixels
+    maxStart,
+    viewY,
+    viewH,
+    lineH,
+    rows,
+    pool: [],
+    lastStart: 0 // slots are created with rows 0..poolSize-1 already in place
+  }
+  screen.guide = g
+
+  // Create every slot with the correct first-page content/style, so opening
+  // the guide does not immediately rewrite all 15 rows with setGuideScroll().
+  for (let i = 0; i < poolSize; i++) {
+    const y = viewY + i * lineH
+    const row = rows[i]
+    const isTitle = !!(row && row.type === 'title')
+    const isText = !!(row && row.type === 'text')
+    const isElement = !!(row && row.type === 'element')
+    const dotColor = isElement ? ((ELEMENTS[row.el] && ELEMENTS[row.el].color) || WHITE) : WHITE
+    const dot = mkRect(30, y + 3, 14, 14, dotColor, 7)
+    if (!isElement) setVisible(dot, false)
+
+    const tx = isElement ? 50 : 28
+    const tw = isElement ? W - 88 : W - 66
+    const size = isTitle ? 19 : 15
+    const color = isTitle ? GOLD : isText ? (row.color || WHITE) : WHITE
+    const alignH = isTitle ? align.CENTER_H : align.LEFT
+    const txt = (isTitle || isText || isElement) ? row.text : ''
+    // keep every text slot visible; spacers are cleared with '' when scrolling
+    const text = mkText(tx, y, tw, lineH, size, color, alignH, txt, align.CENTER_V)
+    g.pool.push({ dot, text, y })
+  }
+
+  g.track = mkRect(W - 12, viewY + 4, 4, viewH - 8, INK, 2)
+  g.thumb = mkRect(W - 12, viewY + 4, 4, viewH - 8, GOLD, 2)
+  mkRect(0, viewY + viewH, W, H - (viewY + viewH), BG, 0)
+  mkArtButton(Math.round(CX - artSize('btn_back_s')[0] / 2), 374, 'btn_back_s', () => gotoBack('den'))
+
+  updateGuideThumb(g)
 }
 
 const SCREENS = {
@@ -2396,23 +3383,67 @@ const SCREENS = {
   feed: buildFeed,
   book: buildBook,
   guide: buildGuide,
-  settings: buildSettings
+  settings: buildSettings,
+  boss: buildBoss
 }
 
 // ---------- input ----------
 // A tap fires when the finger lifts (so a swipe that starts on a button does
 // not press it). Watches that never report finger-lift fall back to firing
 // 350 ms after touch-down. The catch screen fires on touch-down for timing.
+// On the guide, MOVE events drag the document and swipes scroll a chunk.
 let down = null
 let upSeen = false
+let lastMoveAt = 0
 
 function onDown(e) {
   try {
+    if (slide) return
     if (!e || typeof e.x !== 'number') return
+    upSeen = false
+    lastMoveAt = 0
     if (screen.instant) return fireTap(e.x, e.y)
-    down = { x: e.x, y: e.y, t: now(), scr: screen }
+    const t = now()
+    down = {
+      x: e.x, y: e.y, t,
+      lastY: e.y, lastT: t, vy: 0,
+      scr: screen, dragged: false,
+      scroll0: screen.guide ? screen.guide.scroll : 0
+    }
   } catch (err) {
     showError('tap', err)
+  }
+}
+function onMove(e) {
+  try {
+    if (slide || !down || down.scr !== screen) return
+    if (screen.name !== 'guide' || !e) return
+    const t = now()
+    if (t - lastMoveAt < 40) return // cap drag redraws to ~25 fps
+    lastMoveAt = t
+    const px = typeof e.x === 'number' ? e.x : e.pos_x
+    const py = typeof e.y === 'number' ? e.y : e.pos_y
+    if (typeof py !== 'number') return
+    const dy = down.y - py
+    const dx = typeof px === 'number' ? Math.abs(px - down.x) : 0
+    // lock new drags to vertical so a horizontal back-swipe still reaches onSwipe()
+    if (!down.dragged && (Math.abs(dy) < 8 || Math.abs(dy) < dx)) return
+    const dt = Math.max(1, t - down.lastT)
+    down.vy = (down.lastY - py) / dt // px/ms, positive scrolls down the guide
+    down.lastY = py
+    down.lastT = t
+    down.dragged = true
+    lastDrag = t
+    scrollAnim = null
+    const g = screen.guide
+    const want = down.scroll0 + dy
+    if (guideLineStart(g, want) !== g.lastStart) setGuideScroll(want)
+    else {
+      g.scroll = clamp(Math.round(want), 0, g.max)
+      updateGuideThumb(g)
+    }
+  } catch (err) {
+    showError('drag', err)
   }
 }
 function onUp(e) {
@@ -2421,6 +3452,11 @@ function onUp(e) {
     const d = down
     down = null
     if (!d || d.scr !== screen) return
+    if (d.dragged) {
+      // coast only when the finger was still moving just before lift
+      if (now() - d.lastT < 120 && Math.abs(d.vy) > 0.15) animateGuideScroll(d.vy * 180)
+      return
+    }
     if (e && typeof e.x === 'number' && (Math.abs(e.x - d.x) > 40 || Math.abs(e.y - d.y) > 40)) return
     fireTap(d.x, d.y)
   } catch (err) {
@@ -2428,6 +3464,7 @@ function onUp(e) {
   }
 }
 function fireTap(x, y) {
+  if (slide) return
   // the battle stats overlay: any tap closes it
   if (screen.name === 'battle' && screen.ui.stats && screen.ui.stats.open) {
     closeStats()
@@ -2450,39 +3487,57 @@ function fireTap(x, y) {
 
 function onSwipe(ev) {
   down = null
-  // the guide: swipe left on the den opens it, then left / right turns pages
+  if (slide) return true
+  if (now() - lastDrag < 250) return true // a drag is not also a swipe
+  // the guide scrolls continuously; RIGHT goes back
   if (screen.name === 'guide') {
-    if (ev === GESTURE_LEFT) goto('guide', screen.arg + 1)
-    else if (ev === GESTURE_RIGHT) {
-      if (screen.arg > 0) goto('guide', screen.arg - 1)
-      else home()
-    } else return false
+    if (ev === GESTURE_RIGHT) gotoBack('den')
+    else if (ev === GESTURE_UP || ev === GESTURE_LEFT) animateGuideScroll(220)
+    else if (ev === GESTURE_DOWN) animateGuideScroll(-220)
+    else return false
     return true
   }
   if (ev === GESTURE_LEFT && screen.name === 'den') {
-    goto('guide', 0)
+    goto('guide', 0, 1)
+    return true
+  }
+  if (ev === GESTURE_RIGHT && screen.name === 'den') {
+    goto('boss', undefined, -1)
     return true
   }
   if (ev === GESTURE_UP && screen.name === 'den') {
-    goto('settings')
+    goto('settings', undefined, 1, 'y')
     return true
   }
   if (screen.name === 'settings' && (ev === GESTURE_RIGHT || ev === GESTURE_DOWN)) {
     home()
     return true
   }
+  // the boss screen was entered by swiping right on the den, so either
+  // horizontal swipe works as the way back
+  if (screen.name === 'boss' && (ev === GESTURE_LEFT || ev === GESTURE_RIGHT)) {
+    home()
+    return true
+  }
   if (ev !== GESTURE_RIGHT) return false
   const n = screen.name
+  // a creature popup lives inside the book screen: swipe closes the popup only
+  if (n === 'book' && screen.arg && typeof screen.arg === 'object' && screen.arg.info) {
+    gotoBack('book', screen.arg.page)
+    return true
+  }
   if (n === 'team' || n === 'book') {
     home()
     return true
   }
   if (n === 'detail') {
-    goto('team', screen.arg.page)
+    gotoBack('team', screen.arg.page)
     return true
   }
   if (n === 'feed') {
-    home()
+    // feed can be opened from a creature's detail page: return there if so
+    if (screen.arg && screen.arg.back === 'detail') gotoBack('detail', { id: screen.arg.id, page: screen.arg.page })
+    else home()
     return true
   }
   // in battle / catch / evolve the swipe is blocked so you cannot leave by accident
@@ -2493,10 +3548,14 @@ function onSwipe(ev) {
 function tick() {
   try {
     const t = now()
-    if (down && !upSeen && t - down.t > 350) {
+    tickSlide(t)
+    tickScroll(t)
+    // only fire the fallback tap when the finger has not started dragging;
+    // an active guide drag must not be cancelled after 350 ms
+    if (down && !upSeen && t - (down.dragged ? lastDrag : down.t) > 350) {
       const d = down
       down = null
-      if (d.scr === screen) fireTap(d.x, d.y)
+      if (d.scr === screen && !d.dragged) fireTap(d.x, d.y)
     }
     if (screen.toastUntil && t > screen.toastUntil) {
       screen.toastUntil = 0
@@ -2513,8 +3572,14 @@ function tick() {
       passTime(t - lastMinute, n === 'battle' || n === 'catch') // no healing mid-fight
       lastMinute = t
     }
-    if (n === 'den') denIdle(t)
-    if (n === 'den' && t % 500 < TICK_MS) updateFacing()
+    // While a slide is running, denIdle would reset the lead's position and
+    // make it snap. Leave the moving screen alone until the slide finishes.
+    if (n === 'den' && !slide) denIdle(t)
+    // elapsed-time check: t % 500 can skip or double-fire when the timer drifts
+    if (n === 'den' && !slide && t - lastFacing >= 500) {
+      lastFacing = t
+      updateFacing()
+    }
     if (n === 'den' && t - lastSensor >= 5000) {
       lastSensor = t
       updateSteps()
@@ -2522,7 +3587,7 @@ function tick() {
         lastHeart = t
         updateHeart()
       }
-      updateDen()
+      if (!slide) updateDen()
     }
     if (t - lastSave >= SAVE_EVERY_MS) save()
   } catch (e) {
@@ -2554,7 +3619,10 @@ Page({
       }
       step = 'load'
       // forget any screen left over from an earlier run of this page
-      screen = { name: '', ws: [], taps: [], ui: {} }
+      screen = { name: '', ws: [], poss: [], taps: [], ui: {}, root: null }
+      slide = null
+      scrollAnim = null
+      lastDrag = 0
       notices.length = 0
       weatherCache = { t: 0, kind: null }
       storage = new LocalStorage()

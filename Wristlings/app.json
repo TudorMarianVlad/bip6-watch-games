@@ -36,13 +36,22 @@
           "pages": [
             "page/index"
           ]
+        },
+        "secondary-widget": {
+          "widgets": [
+            {
+              "path": "secondary-widget/index",
+              "icon": "icon.png",
+              "preview": "widget-preview.png",
+              "name": "Wristlings",
+              "runtime": {
+                "type": "js"
+              }
+            }
+          ]
         }
       },
       "platforms": [
-        {
-          "st": "r",
-          "dw": 480
-        },
         {
           "st": "s",
           "dw": 390

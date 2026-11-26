@@ -215,6 +215,9 @@ const GLYPHS = {
   '.': ['.', '.', '.', '.', '.', '.', '#'],
   '<': ['...', '..#', '.#.', '#..', '.#.', '..#', '...'],
   '>': ['...', '#..', '.#.', '..#', '.#.', '#..', '...'],
+  '/': ['....#', '...#.', '...#.', '..#..', '.#...', '.#...', '#....'],
+  ':': ['.', '#', '.', '.', '.', '#', '.'],
+  ',': ['..', '..', '..', '..', '..', '.#', '#.'],
   ' ': ['..', '..', '..', '..', '..', '..', '..']
 }
 
@@ -305,6 +308,17 @@ function plate(size) {
   cv.ellipse(c, c, c - 2, c - 2, vgrad([[0, 0x6a5fc0], [1, 0x2a2350]], 0, size))
   cv.ellipse(c, c, c - 6, c - 6, radial(c, c * 0.8, c, 0x3a3180, 0x1a1540))
   cv.ellipse(c, size * 0.8, c * 0.55, c * 0.12, solid(0x0d0a20, 0.6))
+  return cv
+}
+
+// the round stand under the lead creature in the widget: a dim version of plate()
+function darkPlate(size) {
+  const cv = new Canvas(size, size)
+  const c = size / 2
+  cv.ellipse(c, c, c, c, solid(INK))
+  cv.ellipse(c, c, c - 2, c - 2, vgrad([[0, 0x3a3180], [1, 0x140f2c]], 0, size))
+  cv.ellipse(c, c, c - 5, c - 5, radial(c, c * 0.75, c, 0x1e1846, 0x07060f))
+  cv.ellipse(c, size * 0.82, c * 0.5, c * 0.1, solid(0x000000, 0.7))
   return cv
 }
 
@@ -497,6 +511,19 @@ function icon(kind) {
   return cv
 }
 
+// the egg you carry on the den (ready: glowing gold, about to hatch)
+function eggIcon(ready) {
+  const cv = new Canvas(44, 52)
+  if (ready) cv.ellipse(22, 27, 21, 25, solid(0xffd84d, 0.45))
+  cv.ellipse(22, 27, 17, 22, solid(INK))
+  cv.ellipse(22, 27, 15, 20, solid(ready ? 0xf2c14a : 0x6a5fb0))
+  cv.ellipse(24, 32, 12, 13, solid(ready ? 0xc8902a : 0x4f4590, 0.8))
+  cv.ellipse(16, 18, 4, 6, solid(0xffffff, 0.4))
+  for (const [x, y, r] of [[27, 21, 2.4], [16, 31, 2.2], [27, 36, 1.9], [20, 40, 1.6]]) cv.ellipse(x, y, r, r, solid(ready ? 0xffffff : 0xffd84d, ready ? 0.7 : 1))
+  if (ready) cv.poly([[9, 24], [14, 21], [18, 25], [23, 20], [27, 24], [32, 21], [35, 24], [35, 26], [32, 23.5], [27, 26.5], [23, 22.5], [18, 27.5], [14, 23.5], [9, 26.5]], solid(INK))
+  return cv
+}
+
 // ---------- everything the game uses ----------
 const C = {
   green: 0x3fbf5a,
@@ -518,6 +545,7 @@ const ELEMENT_BTN = {
   air: 0x6a7fd8,
   earth: 0x9a6a3a,
   shadow: 0x6a4fb0,
+  light: 0xc9a33a,
   none: 0x4a3f8c
 }
 
@@ -532,7 +560,7 @@ function art() {
   const den = { s: groupScale(['TRAIN', 'FEED', 'TEAM', 'BOOK'], 76, 50) }
   const act = { s: groupScale(['CATCH', 'SWAP', 'RUN'], 102, 50) }
   const team = { s: groupScale(['LEADER', 'BENCH', 'JOIN', 'LEAD', 'FEED'], 104, 48) }
-  const big = { s: groupScale(['NO TRACKS', 'EXPLORE', 'DREAM!', 'PICK ONE', 'CHOOSE'], 280, 56) }
+  const big = { s: groupScale(['NO TRACKS', 'EXPLORE', 'DREAM!', 'PICK ONE', 'CHOOSE', 'FIGHT!', 'BEATEN'], 280, 56) }
   const off = (o) => ({ ...o, textColor: 0xb0a8d0 })
   const add = (k, cv, opaque) => (A[k] = { cv, opaque })
   // backgrounds
@@ -551,6 +579,11 @@ function art() {
   add('btn_book', button(76, 50, C.purple, 'BOOK', den))
   add('btn_train', button(76, 50, C.red, 'TRAIN', den))
   add('btn_train_off', button(76, 50, C.off, 'TRAIN', off(den)))
+  add('ico_egg', eggIcon(false))
+  add('ico_egg_ready', eggIcon(true))
+  // weekly boss (swipe right on the den)
+  add('btn_fight', button(300, 56, C.red, 'FIGHT!', big))
+  add('btn_fight_off', button(300, 56, C.off, 'BEATEN', off(big)))
   // battle
   for (const el in ELEMENT_BTN) add('btn_move_' + el, button(110, 58, ELEMENT_BTN[el], ''))
   add('btn_move_off', button(110, 58, C.off, ''))
@@ -607,6 +640,7 @@ function art() {
   add('t_evolution', title('EVOLUTION', 3.75, gold))
   add('t_stats', title('STATS', 3.5, gold))
   add('t_settings', title('SETTINGS', 4, white))
+  add('t_boss', title('WEEKLY BOSS', 3.25, gold))
   add('t_perfect', title('PERFECT!', 4.5, gold))
   add('t_good', title('GOOD', 4.5, { top: 0xffffff, bottom: 0x8af07a, side: 0x2a7a3a }))
   add('t_miss', title('MISS', 4.5, { top: 0xffffff, bottom: 0xff8a8a, side: 0x8a2a3a }))
@@ -615,6 +649,14 @@ function art() {
   // catch countdown
   for (const n of ['3', '2', '1']) add('t_count' + n, title(n, 9, gold))
   add('t_go', title('GO!', 7, { top: 0xffffff, bottom: 0x8af07a, side: 0x2a7a3a }))
+  // the watch widget (secondary-widget/index.js): same style, but dark parts stay
+  // near-black so the pure black widget background stays dark on the AMOLED screen
+  const dark = { r: 16, top: 0x161230, bottom: 0x0a0816, edge: 0x342b6a, alpha: 1 }
+  add('w_logo', title('WRISTLINGS', 3.25, gold))
+  add('w_play', button(220, 54, C.green, 'PLAY'))
+  add('w_tile', panel(110, 78, dark))
+  add('w_plate', darkPlate(132))
+  add('w_plate_s', darkPlate(76))
   return A
 }
 
@@ -683,4 +725,7 @@ function writeSheet(items) {
   console.log('wrote tools/ui_sheet.png')
 }
 
-main()
+// other tools (e.g. tools/sheet.cjs) reuse the canvas and the 3D font
+module.exports = { Canvas, text3d, textWidth, solid }
+
+if (require.main === module) main()

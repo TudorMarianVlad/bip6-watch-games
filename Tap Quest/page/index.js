@@ -3,7 +3,7 @@
 // HOME (the battle):
 //   * Tap the monster to hit it. 10 kills clear a stage; every 5th stage is a
 //     timed BOSS (if it escapes you drop back a stage).
-//   * Three skill buttons: RAGE (x2 damage), GOLD (x3 gold), SMITE (huge hit).
+//   * Six skill buttons on the home screen: RAGE, GOLD, SMITE, RUSH, LUCK, WIND.
 //   * BEST BUY: one tap buys the upgrade that adds the most power per gold.
 //   * The menu button (three bars) or a swipe left opens the main menu (heroes,
 //     upgrades, modes); a swipe up (or the small ^) opens the info menu (goals,
@@ -28,6 +28,7 @@ import { getDeviceInfo } from '@zos/device'
 import { LocalStorage } from '@zos/storage'
 import { Time, Step } from '@zos/sensor'
 import { onGesture, offGesture, GESTURE_LEFT, GESTURE_RIGHT, GESTURE_UP, GESTURE_DOWN } from '@zos/interaction'
+import { setScrollLock } from '@zos/page'
 
 // ---------- balance (change these to tune the game) ----------
 const KILLS_PER_STAGE = 10
@@ -128,7 +129,8 @@ const rushRate = () => RUSH_TAPS + 1 * skillBonusLevels('rush') // +1 tap/s per 
 const luckyBonus = () => 0.4 + 0.04 * skillBonusLevels('lucky') // +4% per level
 function cooldownOf(s) {
   // Second Wind comes back 2.5 minutes sooner per level, never below 15 minutes
-  return s.id === 'wind' ? Math.max(900, s.cooldown - 150 * skillBonusLevels('wind')) : s.cooldown
+  // the Focus talent shortens every cooldown
+  return (s.id === 'wind' ? Math.max(900, s.cooldown - 150 * skillBonusLevels('wind')) : s.cooldown) * (1 - tv('focus'))
 }
 
 // The description with the current numbers, for the SKILLS menu.
@@ -546,6 +548,171 @@ const ENEMIES = {
       { p: 0x9b5cff, y: 0xffd84d, k: 0x101010, w: 0xffffff },
       { p: 0x2f9ea8, y: 0xff5c5c, k: 0x101010, w: 0xffffff }
     ]
+  },
+  // --- late-game monsters (the three worlds after stage 80) ---
+  jelly: {
+    name: 'JELLYFISH',
+    rows: [
+      '....pppp....', '..pppppppp..', '.pplppppppp.', '.plpppppppp.',
+      '.pppkppkppp.', '.pppppppppp.', '..pppppppp..', '..p.p..p.p..',
+      '.p..p..p..p.', '.p.p....p.p.', '..p.p..p.p..', '............'
+    ],
+    pals: [
+      { p: 0xff7ac8, l: 0xffd0ee, k: 0x2a0a2a },
+      { p: 0x7ad8ff, l: 0xd8f6ff, k: 0x0a1a2a }
+    ]
+  },
+  puffer: {
+    name: 'PUFFER',
+    rows: [
+      '.....s......', '..s.yyyy.s..', '...yyyyyy...', 's.yyyyyyyy.f',
+      '.yywkyyyyyff', '.yykkyyyyyyf', 'syyyyyyyyyy.', '.yyyrryyyyff',
+      '..yyyyyyyy.f', '...yyyyyy...', '..s.yyyy.s..', '.....s......'
+    ],
+    pals: [
+      { y: 0xffd84d, s: 0xc98a2a, k: 0x101010, w: 0xffffff, f: 0xff9a3a, r: 0xff5c5c },
+      { y: 0xa8e070, s: 0x5a8a2a, k: 0x101010, w: 0xffffff, f: 0x4dd06a, r: 0xff5c5c }
+    ]
+  },
+  serpent: {
+    name: 'SEA SERPENT',
+    boss: true,
+    rows: [
+      '...gggg.....', '..gggggg....', '.ggyggggg...', '.gggggggg...',
+      '..wgw.ggg...', '......ggg...', '..gggggg....', '.gggddgg....',
+      'ggg....ggg..', 'gg..gggggg..', 'ggggggddgggg', '.gggggggggg.'
+    ],
+    pals: [
+      { g: 0x2f9e7a, d: 0xa8e8c8, y: 0xffd84d, w: 0xffffff },
+      { g: 0x3a4ab8, d: 0x9cc4ea, y: 0xff5c5c, w: 0xffffff }
+    ]
+  },
+  knight: {
+    name: 'DARK KNIGHT',
+    rows: [
+      '....rrr.....', '...aaaaaa...', '..aaaaaaaa..', '..akkkkkka..',
+      '..aaaaaaaa..', '...aaaaaa..s', '.aaaaaaaaa.s', 'aa.aaaaa.aas',
+      'aa.aaaaa.ss.', '...aa.aa....', '...aa.aa....', '..aaa.aaa...'
+    ],
+    pals: [
+      { a: 0xa8b0c0, k: 0x101018, r: 0xff3b3b, s: 0xe8e8f0 },
+      { a: 0x4a4a5a, k: 0xff5c5c, r: 0x9b6cff, s: 0xc8c8d8 }
+    ]
+  },
+  gargoyle: {
+    name: 'GARGOYLE',
+    rows: [
+      'g..........g', 'gg..dddd..gg', 'ggg.dddd.ggg', 'gggddddddggg',
+      '.ggdrddrdgg.', '..gddddddg..', '...dddddd...', '...dwddwd...',
+      '....dddd....', '...dd..dd...', '..ddd..ddd..', '............'
+    ],
+    pals: [
+      { g: 0x6a6a7a, d: 0x8a8a9a, r: 0xff3b3b, w: 0xffffff },
+      { g: 0x3a5a4a, d: 0x5a7a6a, r: 0xffd84d, w: 0xffffff }
+    ]
+  },
+  warlock: {
+    name: 'WARLOCK',
+    boss: true,
+    rows: [
+      '....hhh...o.', '...hhhhh.ooo', '..hhhhhhh.o.', '..hkkkkkh.s.',
+      '..hkykykh.s.', '..hkkkkkh.s.', '.hhhhhhhhhs.', 'hhhhhhhhhhs.',
+      '.hhhhhhhh.s.', '.hhhhhhhh.s.', 'hhhhhhhhhhs.', 'hh.hh.hh.hs.'
+    ],
+    pals: [
+      { h: 0x4a2a7a, k: 0x100818, y: 0xffd84d, o: 0x4de0ff, s: 0x8a6a3a },
+      { h: 0x7a1a1a, k: 0x100808, y: 0x9dff7a, o: 0xff8a3a, s: 0x5a4a3a }
+    ]
+  },
+  voidling: {
+    name: 'VOIDLING',
+    rows: [
+      '............', '....vvvv....', '..vvvvvvvv..', '.vvekvvekvv.',
+      '.vvvvvvvvvv.', 'vvvvekvvvvvv', 'vvvvvvvvekvv', '.vvvvvvvvvv.',
+      '..vv.vv.vv..', '.vv..vv..vv.', 's..........s', '............'
+    ],
+    pals: [
+      { v: 0x3a1a5a, e: 0xffffff, k: 0xff3bd0, s: 0xc77dff },
+      { v: 0x0a2a3a, e: 0xffffff, k: 0x4de0ff, s: 0x9dff7a }
+    ]
+  },
+  comet: {
+    name: 'COMET',
+    rows: [
+      'ff..........', 'fff.f.......', '.fffff......', '..fffffrrr..',
+      '...ffrrrrrr.', '..ffrrkrrkr.', '.fffrrrrrrrr', '..ffrryyrrrr',
+      '...frrrrrrr.', '....rrrrrr..', '.....rrrr...', '............'
+    ],
+    pals: [
+      { r: 0x6a5a5a, f: 0xff8a3a, y: 0xffd84d, k: 0x101010 },
+      { r: 0x3a4a6a, f: 0x4de0ff, y: 0xffffff, k: 0x101010 }
+    ]
+  },
+  titan: {
+    name: 'VOID TITAN',
+    boss: true,
+    rows: [
+      '...tttttt...', '..tyttttyt..', '..tttddttt..', '...tttttt...',
+      'tttttttttttt', 'tt.ttcctt.tt', 'tt.tcccct.tt', 'tt.ttcctt.tt',
+      '...tttttt...', '...tt..tt...', '..ttt..ttt..', '..ttt..ttt..'
+    ],
+    pals: [
+      { t: 0x2a2a4a, c: 0xff3bd0, y: 0x4de0ff, d: 0x15152a },
+      { t: 0x5a3a2a, c: 0xffd84d, y: 0xff5c5c, d: 0x2a1a10 }
+    ]
+  },
+  // --- festival monsters (only during their season, see SEASONS) ---
+  pumpkin: {
+    name: 'PUMPKIN',
+    seasonal: true,
+    rows: [
+      '.....ss.....', '......s.....', '..odoooodo..', '.oodoooodoo.',
+      'oodyyooyydoo', 'oodyyooyydoo', 'oodoooooodoo', 'oodyyyyyydoo',
+      '.oodyooydoo.', '..oooooooo..', '...oooooo...', '............'
+    ],
+    pals: [
+      { o: 0xff8a2a, d: 0xc85a10, s: 0x4a8a2a, y: 0xffe066 },
+      { o: 0x9b6cff, d: 0x6a3ab8, s: 0x2a6a4a, y: 0x9dff7a }
+    ]
+  },
+  snowman: {
+    name: 'SNOWMAN',
+    seasonal: true,
+    rows: [
+      '....hhhh....', '...hhhhhh...', '....wwww....', '...wkwwkw...',
+      '...wwnnww...', '....wwww....', '..rrrrrrrr..', '..wwwwwwww..',
+      '.wwwwkwwwww.', '.wwwwwwwwww.', '.wwwwkwwwww.', '..wwwwwwww..'
+    ],
+    pals: [
+      { h: 0x202030, w: 0xf4f8ff, k: 0x101010, n: 0xff8a2a, r: 0xff3b3b },
+      { h: 0x3a1a5a, w: 0xd8f0ff, k: 0x101010, n: 0xff8a2a, r: 0x4de0ff }
+    ]
+  },
+  blossom: {
+    name: 'BLOSSOM',
+    seasonal: true,
+    rows: [
+      '....pppp....', '..pppppppp..', '.pppyyyyppp.', 'ppyykyykyypp',
+      'ppyyyyyyyypp', '.ppyyrryypp.', '..pppppppp..', '....pppp....',
+      '.....gg.....', '..ll.gg.ll..', '...llggll...', '.....gg.....'
+    ],
+    pals: [
+      { p: 0xff9ad8, y: 0xffe066, k: 0x101010, r: 0xff5c5c, g: 0x4a8a2a, l: 0x6ad04a },
+      { p: 0xffffff, y: 0xffd84d, k: 0x101010, r: 0xff5c5c, g: 0x4a8a2a, l: 0x6ad04a }
+    ]
+  },
+  sunny: {
+    name: 'SUN SPRITE',
+    seasonal: true,
+    rows: [
+      'y....yy....y', '.y...yy...y.', '...oooooo...', '..oooooooo..',
+      '.ookooookoo.', 'yooooooooooy', '.oorooooroo.', '..ookkkkoo..',
+      '...oooooo...', '.y...yy...y.', 'y....yy....y', '............'
+    ],
+    pals: [
+      { o: 0xffc83a, y: 0xffe066, k: 0x5a2a10, r: 0xff7a5a },
+      { o: 0xff8a3a, y: 0xffd84d, k: 0x3a1a08, r: 0xff5c5c }
+    ]
   }
 }
 
@@ -597,8 +764,39 @@ const WORLDS = [
   }
 ]
 
+// The late game: after stage LATE_FROM these three join the rotation (first all
+// three in a row, then all nine worlds take turns).
+const LATE_FROM = 80
+const LATE_WORLDS = [
+  {
+    name: 'SUNKEN REEF',
+    sky: [0x041a2e, 0x0a3050, 0x125070], hills: [0x0f4a5a, 0x167080], ground: [0x2a3a4a, 0xd8c890],
+    light: null,
+    fx: { mode: 'float', color: 0x9cf0ff }, clouds: null, // rising bubbles
+    enemies: ['jelly', 'puffer', 'crab', 'eye', 'slug', 'wisp'], boss: 'serpent'
+  },
+  {
+    name: 'STORM KEEP',
+    sky: [0x14121e, 0x24202f, 0x3a3448], hills: [0x2a2a36, 0x3a3a48], ground: [0x2a2620, 0x5a5a6a],
+    light: { color: 0xe8e8ff, glow: 0x3a3a58, r: 14, x: 80, y: 56 },
+    fx: { mode: 'rain', color: 0x9cb4dc }, clouds: 0x4a4a5e,
+    enemies: ['knight', 'gargoyle', 'skull', 'ghost', 'bat', 'imp'], boss: 'warlock'
+  },
+  {
+    name: 'VOID RIFT',
+    sky: [0x05020c, 0x120624, 0x24083c], hills: [0x2a0a40, 0x3c1258], ground: [0x10061a, 0xc77dff],
+    light: { color: 0xff7ac8, glow: 0x4a1a5a, r: 22, x: 300, y: 80 },
+    fx: { mode: 'stars', color: 0xffffff }, clouds: null,
+    enemies: ['voidling', 'comet', 'eye', 'wisp', 'golem', 'ghost'], boss: 'titan'
+  }
+]
+
 function worldFor(stage) {
-  return WORLDS[Math.floor((stage - 1) / BOSS_EVERY) % WORLDS.length]
+  const block = Math.floor((stage - 1) / BOSS_EVERY)
+  if (stage <= LATE_FROM) return WORLDS[block % WORLDS.length]
+  const all = WORLDS.length + LATE_WORLDS.length
+  const i = (WORLDS.length + block - LATE_FROM / BOSS_EVERY) % all
+  return i < WORLDS.length ? WORLDS[i] : LATE_WORLDS[i - WORLDS.length]
 }
 
 // ---------- module state ----------
@@ -611,12 +809,11 @@ let st // game state
 let lastTick = 0
 let saveTimer = 0
 let lastTapAt = 0
-let pausedAt = 0
 
 const L = {} // layout
 const ui = {} // widgets
 const menu = { open: false, kind: 'main', cat: 0, page: 0, mult: 1 }
-const CATS = ['HEROES', 'SKILLS', 'RELICS', 'REBIRTH', 'GEAR', 'TRAVEL', 'ASCEND', 'GOALS', 'BESTIARY', 'MODES', 'STATS', 'GUIDE', 'SETTINGS']
+const CATS = ['HEROES', 'SKILLS', 'RELICS', 'REBIRTH', 'GEAR', 'TRAVEL', 'ASCEND', 'GOALS', 'BESTIARY', 'MODES', 'STATS', 'GUIDE', 'SETTINGS', 'CARDS', 'AWARDS', 'TALENTS']
 const ROWS_PER_PAGE = 3
 
 function layout() {
@@ -687,8 +884,14 @@ function freshState() {
     skills: {},
     stats: {
       kills: 0, taps: 0, rebirths: 0, dustEarned: 0, chests: 0, goldEarned: 0, bosses: 0, skillsUsed: 0, thieves: 0, stepDust: 0, dailies: 0,
-      starsCaught: 0, gearFound: 0, trips: 0, ascensions: 0, challenges: 0
+      starsCaught: 0, gearFound: 0, trips: 0, ascensions: 0, challenges: 0, cards: 0, bounties: 0, shinies: 0
     },
+    shinies: {}, // monster id -> true once a shiny one was caught (forever)
+    login: { day: 0, streak: 0, claimed: true }, // the login streak
+    talents: {}, // talent id -> level (forever)
+    talentPts: 0, // unspent talent points (from rebirths)
+    cards: {}, // monster id -> card level (forever)
+    bounties: [], // the three bounty slots (forever; filled by updateBounties)
     ach: {}, // achievements reached (id -> true); they survive rebirth
     stars: {}, // hero stars from rebirths (id -> count); they survive rebirth
     daily: null, // today's goal
@@ -696,7 +899,7 @@ function freshState() {
     tutorial: 0, // how many first-launch hints were shown
     tips: {}, // feature tips already shown (id -> true)
     auto: false, // auto-advance while farming
-    anim: true, // menu transitions
+    scenery: 1, // background motion: 0 OFF, 1 LIGHT, 2 FULL
     bestiary: {}, // monster id -> kills (forever)
     gear: { weapon: null, charm: null, banner: null }, // equipped items (forever)
     pet: { lv: 1, treats: 0 }, // the companion (forever)
@@ -719,10 +922,36 @@ function save() {
     v: 3,
     gold: st.gold, stage: st.stage, kills: st.kills, best: st.best, runBest: st.runBest,
     lv: st.lv, dust: st.dust, relics: st.relics, skills: st.skills, stats: st.stats,
-    ach: st.ach, stars: st.stars, daily: st.daily, steps: st.steps, tutorial: st.tutorial, tips: st.tips, auto: st.auto, anim: st.anim,
-    bestiary: st.bestiary, gear: st.gear, pet: st.pet, trip: st.trip, tripHours: st.tripHours,
+    ach: st.ach, stars: st.stars, daily: st.daily, steps: st.steps, tutorial: st.tutorial, tips: st.tips, auto: st.auto, scenery: st.scenery,
+    bestiary: st.bestiary, cards: st.cards, bounties: st.bounties, gear: st.gear,
+    shinies: st.shinies, login: st.login, talents: st.talents, talentPts: st.talentPts, pet: st.pet, trip: st.trip, tripHours: st.tripHours,
     asc: st.asc, chal: st.chal, rush: { best: st.rush.best, day: st.rush.day, active: null, saved: st.rush.saved || null },
     last: now()
+  }
+  // a short summary for the watch widget (secondary-widget/index.js), so it never
+  // has to know the game's formulas
+  try {
+    data.widget = {
+      stage: st.stage,
+      best: st.best,
+      gold: fmt(st.gold),
+      world: worldFor(st.stage).name,
+      bounties: st.bounties.filter(bountyReady).length,
+      cards: cardCount(),
+      cardTotal: CARD_IDS.length,
+      dust: fmt(st.dust),
+      loginReady: !st.login.claimed,
+      streak: st.login.streak,
+      talentPts: st.talentPts,
+      festival: season() ? { name: season().name, color: season().color } : null,
+      // the monster you are fighting, so the widget can draw it
+      monster: st.monsterName || 'SLIME',
+      boss: !!st.boss,
+      sprite: st.sprite,
+      pal: st.pal
+    }
+  } catch (e) {
+    // the summary is optional
   }
   try {
     storage.setItem('save', JSON.stringify(data))
@@ -740,14 +969,16 @@ function load() {
     console.log('TAP QUEST could not read save: ' + e)
   }
   const s = freshState()
+  // corrupt saves must not smuggle in Infinity, NaN or negative progress
+  const num = (v, fallback, min = 0) => (typeof v === 'number' && isFinite(v) && v >= min ? v : fallback)
   if (data) {
     // works for both the old (v1) and the new save format
-    s.gold = data.gold || 0
-    s.stage = data.stage || 1
-    s.kills = data.kills || 0
-    s.best = data.best || s.stage
-    s.runBest = data.runBest || s.stage
-    s.dust = data.dust || 0
+    s.gold = num(data.gold, 0)
+    s.stage = Math.floor(num(data.stage, 1, 1))
+    s.kills = Math.floor(num(data.kills, 0))
+    s.best = Math.floor(num(data.best, s.stage, 1))
+    s.runBest = Math.floor(num(data.runBest, s.stage, 1))
+    s.dust = Math.floor(num(data.dust, 0))
     for (const k in s.lv) s.lv[k] = (data.lv && data.lv[k]) || 0
     for (const k in s.relics) s.relics[k] = (data.relics && data.relics[k]) || 0
     for (const k in s.skills) if (data.skills && data.skills[k]) s.skills[k] = data.skills[k]
@@ -759,9 +990,20 @@ function load() {
     // someone who already played (an older save) does not need the tutorial
     s.tutorial = data.tutorial !== undefined ? data.tutorial : 99
     s.auto = !!data.auto
-    s.anim = data.anim !== false
+    s.scenery = [0, 1, 2].includes(data.scenery) ? data.scenery : 1
     if (data.tips) s.tips = data.tips
     if (data.bestiary) s.bestiary = data.bestiary
+    if (data.cards) s.cards = data.cards
+    if (Array.isArray(data.bounties)) s.bounties = data.bounties
+    if (data.shinies) s.shinies = data.shinies
+    if (data.login) s.login = Object.assign(s.login, data.login)
+    if (data.talents) {
+      s.talents = data.talents
+      s.talentPts = data.talentPts || 0
+    } else {
+      // a save from before talents: one point for every rebirth already done
+      s.talentPts = (data.stats && data.stats.rebirths) || 0
+    }
     if (data.gear) s.gear = Object.assign(s.gear, data.gear)
     if (data.pet) s.pet = data.pet
     if (data.trip) s.trip = data.trip
@@ -790,11 +1032,11 @@ function buffActive(id) {
   return st.skills[id].activeUntil > now()
 }
 function dmgMult(withBuffs) {
-  return (1 + DUST_BONUS * st.dust) * achBonus('dmg') * bestiaryMult() * petMult() * (1 + 0.5 * conLv('orion')) *
+  return (1 + DUST_BONUS * st.dust) * achBonus('dmg') * bestiaryMult() * petMult() * (1 + 0.5 * conLv('orion')) * (1 + cardBonus('dmg')) *
     (withBuffs && buffActive('rage') ? rageMult() : 1) * (withBuffs && frenzyOn() ? FRENZY_MULT : 1)
 }
 function goldMult(withBuffs) {
-  return (1 + relicValue('coin')) * (1 + DUST_BONUS * st.dust) * perkProduct('gold') * achBonus('gold') * gearMult('banner') *
+  return (1 + relicValue('coin')) * (1 + DUST_BONUS * st.dust) * perkProduct('gold') * achBonus('gold') * gearMult('banner') * (1 + cardBonus('gold')) * (1 + tv('greed')) *
     (1 + 0.5 * conLv('pleiades')) * (chalDone('poor') ? 1.3 : 1) * (chalOn('poor') ? 0.3 : 1) * (eventIs('gold') ? 1.5 : 1) *
     (withBuffs && buffActive('rain') ? rainMult() : 1)
 }
@@ -809,13 +1051,13 @@ function tapBase(lv) {
 }
 function tapDamage() {
   // taps also deal a share of your DPS once the Knight reaches level 50
-  return tapBase(st.lv.sword) * (1 + relicValue('edge')) * gearMult('weapon') * (chalDone('bare') ? 1.5 : 1) * dmgMult(true) + perkSum('tapDps') * partyDps(true)
+  return tapBase(st.lv.sword) * (1 + relicValue('edge')) * gearMult('weapon') * (chalDone('bare') ? 1.5 : 1) * (1 + cardBonus('tap')) * (1 + tv('sharp')) * dmgMult(true) + perkSum('tapDps') * partyDps(true)
 }
 function heroDps(h, lv) {
   return h.dps * lv * milestone(lv) * ownPerk(h, 'self', lv) * starMult(h.id)
 }
 function heroMult() {
-  return perkProduct('all') * (1 + relicValue('banner')) * gearMult('charm') * (chalDone('hasty') ? 1.3 : 1)
+  return perkProduct('all') * (1 + relicValue('banner')) * gearMult('charm') * (chalDone('hasty') ? 1.3 : 1) * (1 + tv('drill'))
 }
 function partyDps(withBuffs) {
   let total = 0
@@ -825,16 +1067,16 @@ function partyDps(withBuffs) {
   return total * heroMult() * dmgMult(withBuffs)
 }
 function critChance() {
-  return Math.min(1, BASE_CRIT + relicValue('eye') + (buffActive('lucky') ? luckyBonus() : 0))
+  return Math.min(1, BASE_CRIT + relicValue('eye') + cardBonus('crit') + tv('luck') + (buffActive('lucky') ? luckyBonus() : 0))
 }
 function critMult() {
-  return CRIT_MULT + perkSum('crit')
+  return CRIT_MULT + perkSum('crit') + tv('brutal')
 }
 function bossSeconds() {
-  return (BASE_BOSS_SECONDS + relicValue('glass') + (chalDone('giants') ? 5 : 0)) * (chalOn('hasty') ? 0.5 : 1)
+  return (BASE_BOSS_SECONDS + relicValue('glass') + (chalDone('giants') ? 5 : 0) + tv('patience')) * (chalOn('hasty') ? 0.5 : 1)
 }
 function offlineHours() {
-  return BASE_OFFLINE_HOURS + DREAM_HOURS * rl('dream') + conLv('pyxis')
+  return BASE_OFFLINE_HOURS + DREAM_HOURS * rl('dream') + conLv('pyxis') + tv('nap')
 }
 // "4h", "4.5h" or "4h 30m" style text for the offline limit
 function hoursText(h) {
@@ -888,7 +1130,8 @@ const ACHIEVEMENTS = [
   { id: 'th5', name: 'Thief Catcher', desc: 'catch 5 gold thieves', stat: () => st.stats.thieves, goal: 5, kind: 'gold', x: 0.04 },
   { id: 'h100', name: 'Master', desc: 'a hero at level 100', stat: maxHeroLv, goal: 100, kind: 'dmg', x: 0.05 },
   { id: 'w10', name: 'Walker', desc: 'earn 10 dust from steps', stat: () => st.stats.stepDust, goal: 10, kind: 'gold', x: 0.03 },
-  { id: 'd7', name: 'Dedicated', desc: 'finish 7 daily goals', stat: () => st.stats.dailies, goal: 7, kind: 'dmg', x: 0.05 }
+  { id: 'd7', name: 'Dedicated', desc: 'finish 7 daily goals', stat: () => st.stats.dailies, goal: 7, kind: 'dmg', x: 0.05 },
+  { id: 'sh1', name: 'Shiny Hunter', desc: 'catch a shiny monster', stat: () => st.stats.shinies, goal: 1, kind: 'gold', x: 0.05 }
 ]
 
 function achBonus(kind) {
@@ -1252,11 +1495,17 @@ const BESTIARY_BONUS = 0.01
 
 function bestiaryGoal(id) {
   const e = ENEMIES[id]
-  return e.boss ? 25 : id === 'chest' || id === 'thief' ? 10 : 100
+  return e.boss || e.seasonal ? 25 : id === 'chest' || id === 'thief' ? 10 : 100
 }
 
+let bestiaryCache = null
 function bestiaryDone() {
-  return Object.keys(ENEMIES).filter((id) => (st.bestiary[id] || 0) >= bestiaryGoal(id)).length
+  if (!bestiaryCache || bestiaryCache.st !== st) {
+    let n = 0
+    for (const id in ENEMIES) if ((st.bestiary[id] || 0) >= bestiaryGoal(id)) n++
+    bestiaryCache = { st, n }
+  }
+  return bestiaryCache.n
 }
 
 function bestiaryMult() {
@@ -1266,7 +1515,311 @@ function bestiaryMult() {
 function countKill(id) {
   const before = st.bestiary[id] || 0
   st.bestiary[id] = before + 1
-  if (before < bestiaryGoal(id) && before + 1 >= bestiaryGoal(id)) toast('BESTIARY: ' + ENEMIES[id].name + ' DONE!', 0xb07a3a)
+  if (before < bestiaryGoal(id) && before + 1 >= bestiaryGoal(id)) {
+    bestiaryCache = null
+    toast('BESTIARY: ' + ENEMIES[id].name + ' DONE!', 0xb07a3a)
+  }
+}
+
+// ---------- monster cards ----------
+// A kill can drop that monster's card: a small bonus forever. Hard on purpose:
+//   * only 1 in CARD_CHANCE kills (1 in CARD_BOSS_CHANCE for bosses),
+//   * only on a stage within CARD_NEAR_BEST of your best ever (farming easy stages
+//     never drops cards), and never during a Boss Rush,
+//   * the same card again levels it up, up to CARD_MAX_LV.
+// Each monster's card has one of four kinds (in turn); boss cards count double.
+const CARD_CHANCE = 400
+const CARD_BOSS_CHANCE = 40
+const CARD_NEAR_BEST = 5
+const CARD_MAX_LV = 3
+const CARD_KINDS = [
+  { id: 'dmg', text: 'damage', per: 0.02 },
+  { id: 'gold', text: 'gold', per: 0.03 },
+  { id: 'tap', text: 'tap dmg', per: 0.03 },
+  { id: 'crit', text: 'crit', per: 0.005 }
+]
+const CARD_IDS = Object.keys(ENEMIES).filter((id) => id !== 'chest' && id !== 'thief')
+const CARD_KIND_OF = {}
+CARD_IDS.forEach((id, i) => {
+  CARD_KIND_OF[id] = CARD_KINDS[i % CARD_KINDS.length]
+})
+let cardCache = null // totals per kind, rebuilt when a card is found (or a new game loads)
+
+// what one card adds at a level, e.g. 0.04 = +4%
+function cardValue(id, lv) {
+  return CARD_KIND_OF[id].per * lv * (ENEMIES[id].boss ? 2 : 1)
+}
+
+function cardBonus(kind) {
+  if (!cardCache || cardCache.st !== st) {
+    cardCache = { st, dmg: 0, gold: 0, tap: 0, crit: 0 }
+    for (const id in st.cards) if (CARD_KIND_OF[id]) cardCache[CARD_KIND_OF[id].id] += cardValue(id, st.cards[id])
+  }
+  return cardCache[kind]
+}
+
+function cardCount() {
+  return CARD_IDS.filter((id) => (st.cards[id] || 0) > 0).length
+}
+
+function pctText(v) {
+  return '+' + Math.round(v * 1000) / 10 + '%'
+}
+
+function rollCard(id) {
+  if (!CARD_KIND_OF[id] || st.rush.active || st.stage < st.best - CARD_NEAR_BEST) return
+  const lv = st.cards[id] || 0
+  if (lv >= CARD_MAX_LV) return
+  const chance = ENEMIES[id].boss ? CARD_BOSS_CHANCE : ENEMIES[id].seasonal ? CARD_SEASON_CHANCE : CARD_CHANCE
+  if (Math.random() * chance >= 1) return
+  st.cards[id] = lv + 1
+  cardCache = null
+  st.stats.cards++
+  toast('CARD: ' + ENEMIES[id].name + (lv ? ' LV ' + (lv + 1) : '') + '! ' + pctText(cardValue(id, 1)) + ' ' + CARD_KIND_OF[id].text, 0xff7ac8)
+  save()
+}
+
+// ---------- bounties ----------
+// Three small tasks at a time (GOALS). Claim a finished one for Stardust; a new one
+// arrives BOUNTY_REFILL_MIN minutes later. Only tasks you can already do are picked.
+const BOUNTY_SLOTS = 3
+const BOUNTY_REFILL_MIN = 20
+const BOUNTY_KINDS = [
+  { id: 'kills', text: (n) => 'Kill ' + n + ' monsters', target: () => 150, stat: () => st.stats.kills, ok: () => true },
+  { id: 'bosses', text: (n) => 'Beat ' + n + ' bosses', target: () => 3, stat: () => st.stats.bosses, ok: () => st.best >= BOSS_EVERY },
+  { id: 'taps', text: (n) => 'Tap ' + n + ' times', target: () => 500, stat: () => st.stats.taps, ok: () => true },
+  { id: 'star', text: () => 'Catch a shooting star', target: () => 1, stat: () => st.stats.starsCaught, ok: () => true },
+  { id: 'thief', text: () => 'Catch a gold thief', target: () => 1, stat: () => st.stats.thieves, ok: () => st.best >= 6 },
+  { id: 'chest', text: () => 'Open a loot chest', target: () => 1, stat: () => st.stats.chests, ok: () => st.best >= 4 },
+  { id: 'skills', text: (n) => 'Use skills ' + n + ' times', target: () => 4, stat: () => st.stats.skillsUsed, ok: () => SKILLS.some((s) => st.lv[s.hero] >= s.heroLv) },
+  {
+    id: 'gold',
+    text: (n) => 'Earn ' + fmt(n) + ' gold',
+    // about 100 kills' worth at your best stage
+    target: () => Math.ceil(goldFor(st.best, false) * goldMult(false) * 100),
+    stat: () => st.stats.goldEarned,
+    ok: () => true
+  }
+]
+
+function bountyKind(b) {
+  return BOUNTY_KINDS.find((k) => k.id === b.kind) || BOUNTY_KINDS[0]
+}
+
+function bountyProgress(b) {
+  return Math.max(0, Math.min(b.target, bountyKind(b).stat() - b.start))
+}
+
+function bountyReady(b) {
+  return !!b && !!b.kind && bountyProgress(b) >= b.target
+}
+
+function bountyReward() {
+  return 1 + Math.floor(st.best / 25)
+}
+
+function newBounty() {
+  const taken = st.bounties.filter((b) => b && b.kind).map((b) => b.kind)
+  const pool = BOUNTY_KINDS.filter((k) => k.ok() && !taken.includes(k.id))
+  const k = pool[Math.floor(Math.random() * pool.length)] || BOUNTY_KINDS[0]
+  return { kind: k.id, target: k.target(), start: k.stat() }
+}
+
+// fills empty slots whose wait is over, and says when one is finished
+function updateBounties() {
+  const t = now()
+  for (let i = 0; i < BOUNTY_SLOTS; i++) {
+    const b = st.bounties[i]
+    if (!b || (!b.kind && t >= b.wait)) st.bounties[i] = newBounty()
+  }
+  for (const b of st.bounties) {
+    if (bountyReady(b) && !b.told) {
+      b.told = true
+      toast('BOUNTY DONE! CLAIM IT IN GOALS', 0xff9a3d)
+    }
+  }
+}
+
+function claimBounty(i) {
+  const b = st.bounties[i]
+  if (!bountyReady(b)) return
+  const r = bountyReward()
+  st.dust += r
+  st.stats.dustEarned += r
+  st.stats.bounties++
+  st.bounties[i] = { wait: now() + BOUNTY_REFILL_MIN * 60000 }
+  toast('BOUNTY: +' + r + ' STARDUST', 0xc77dff)
+  save()
+}
+
+// ---------- shiny monsters ----------
+// 1 in SHINY_CHANCE normal monsters is "shiny": same monster, other colours, worth
+// SHINY_GOLD times the gold. The bestiary remembers which ones you caught.
+const SHINY_CHANCE = 1000
+const SHINY_GOLD = 20
+
+// new colours: every colour's red/green/blue turn around (white and black stay)
+function shinyPal(pal) {
+  const o = {}
+  for (const k in pal) {
+    const c = pal[k]
+    o[k] = ((c & 255) << 16) | (((c >> 16) & 255) << 8) | ((c >> 8) & 255)
+  }
+  return o
+}
+
+// ---------- seasons ----------
+// Real-date festivals. While one is on, its monster sometimes shows up instead of a
+// normal one (SEASON_SPAWN): x SEASON_GOLD gold, and its card can only be found then.
+const SEASON_SPAWN = 0.125
+const SEASON_GOLD = 5
+const CARD_SEASON_CHANCE = 80
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const SEASONS = [
+  { id: 'harvest', name: 'HARVEST FEST', monster: 'pumpkin', many: 'Pumpkins', from: [10, 15], to: [11, 30], color: 0xff8a2a },
+  { id: 'winter', name: 'WINTER FEST', monster: 'snowman', many: 'Snowmen', from: [12, 10], to: [1, 10], color: 0x9cc4ea },
+  { id: 'bloom', name: 'BLOOM FEST', monster: 'blossom', many: 'Blossoms', from: [3, 20], to: [4, 30], color: 0xff9ad8 },
+  { id: 'sun', name: 'SUN FEST', monster: 'sunny', many: 'Sun sprites', from: [6, 20], to: [8, 10], color: 0xffc83a }
+]
+
+function season() {
+  const d = new Date(now())
+  const md = (d.getMonth() + 1) * 100 + d.getDate()
+  return (
+    SEASONS.find((s) => {
+      const a = s.from[0] * 100 + s.from[1]
+      const b = s.to[0] * 100 + s.to[1]
+      return a <= b ? md >= a && md <= b : md >= a || md <= b // winter runs over New Year
+    }) || null
+  )
+}
+
+function seasonEnd(s) {
+  return MONTHS[s.to[0] - 1] + ' ' + s.to[1]
+}
+
+// ---------- login streak ----------
+// Open the game on days in a row: day 1..7 rewards (claim in GOALS), then it starts
+// over at day 1. Missing a day resets the streak.
+const STREAK_REWARDS = [1, 1, 2, 2, 3, 3, 6] // x the base Stardust (bigger later in the game)
+const STREAK_TREATS = 3 // day 7 also gives pet treats
+
+function updateLogin() {
+  const day = dayKey(now())
+  const lg = st.login
+  if (lg.day === day) return
+  lg.streak = lg.day === dayKey(now() - 86400000) ? lg.streak + 1 : 1
+  lg.day = day
+  lg.claimed = false
+}
+
+function streakDay() {
+  return ((Math.max(1, st.login.streak) - 1) % 7) + 1
+}
+
+function streakReward() {
+  return STREAK_REWARDS[streakDay() - 1] * (1 + Math.floor(st.best / 25))
+}
+
+function claimStreak() {
+  if (st.login.claimed) return
+  const r = streakReward()
+  st.dust += r
+  st.stats.dustEarned += r
+  st.login.claimed = true
+  const big = streakDay() === 7
+  if (big) st.pet.treats += STREAK_TREATS
+  toast('DAY ' + streakDay() + ': +' + r + ' STARDUST' + (big ? ', +' + STREAK_TREATS + ' TREATS' : ''), 0xc77dff)
+  save()
+}
+
+// ---------- talents ----------
+// Every rebirth gives talent points (more for a longer run). Spend them in four
+// branches; the 2nd and 3rd talent of a branch need points in that branch first.
+// Talents stay forever (rebirth and ascension too). Respec is free.
+const TALENT_MAX = 5
+const TALENT_TIER_NEED = [0, 3, 6] // points spent in the branch for its 1st, 2nd, 3rd talent
+const TALENTS = [
+  { id: 'sharp', branch: 'TAP', name: 'Sharp Taps', per: 0.1, kind: 'pct', text: 'tap damage' },
+  { id: 'luck', branch: 'TAP', name: 'Lucky Hand', per: 0.01, kind: 'pct', text: 'crit chance' },
+  { id: 'brutal', branch: 'TAP', name: 'Brutal Crits', per: 0.5, kind: 'x', text: 'crit damage' },
+  { id: 'drill', branch: 'HEROES', name: 'Drill', per: 0.08, kind: 'pct', text: 'hero DPS' },
+  { id: 'focus', branch: 'HEROES', name: 'Focus', per: 0.05, kind: 'minus', text: 'skill cooldown' },
+  { id: 'petpal', branch: 'HEROES', name: 'Pet Pal', per: 0.2, kind: 'pct', text: 'pet damage' },
+  { id: 'greed', branch: 'GOLD', name: 'Greed', per: 0.1, kind: 'pct', text: 'gold' },
+  { id: 'treasure', branch: 'GOLD', name: 'Treasure', per: 0.2, kind: 'pct', text: 'loot chests' },
+  { id: 'bossloot', branch: 'GOLD', name: 'Boss Loot', per: 0.15, kind: 'pct', text: 'boss gold' },
+  { id: 'nap', branch: 'IDLE', name: 'Long Nap', per: 0.5, kind: 'h', text: 'offline time' },
+  { id: 'night', branch: 'IDLE', name: 'Night Shift', per: 0.1, kind: 'pct', text: 'offline gold' },
+  { id: 'patience', branch: 'IDLE', name: 'Patience', per: 1, kind: 's', text: 'boss timer' }
+]
+const TALENT_BY_ID = {}
+TALENTS.forEach((t) => {
+  TALENT_BY_ID[t.id] = t
+})
+
+function tl(id) {
+  return (st && st.talents && st.talents[id]) || 0
+}
+
+// a talent's total effect (0.2 = +20%, or hours / seconds / crit times)
+function tv(id) {
+  return tl(id) * TALENT_BY_ID[id].per
+}
+
+function talentText(t, lv) {
+  const v = t.per * lv
+  if (t.kind === 'pct') return '+' + Math.round(v * 1000) / 10 + '% ' + t.text
+  if (t.kind === 'minus') return '-' + Math.round(v * 100) + '% ' + t.text
+  if (t.kind === 'x') return '+' + v + 'x ' + t.text
+  if (t.kind === 'h') return '+' + v + 'h ' + t.text
+  return '+' + v + 's ' + t.text
+}
+
+function branchSpent(branch) {
+  return TALENTS.filter((t) => t.branch === branch).reduce((n, t) => n + tl(t.id), 0)
+}
+
+function talentNeed(t) {
+  return TALENT_TIER_NEED[TALENTS.filter((x) => x.branch === t.branch).indexOf(t)]
+}
+
+function talentOpen(t) {
+  return branchSpent(t.branch) >= talentNeed(t)
+}
+
+function talentGain() {
+  return 1 + Math.floor(st.runBest / 40)
+}
+
+function buyTalent(t) {
+  if (tl(t.id) >= TALENT_MAX) return
+  if (!talentOpen(t)) {
+    toast('SPEND ' + talentNeed(t) + ' POINTS IN ' + t.branch + ' FIRST', DIM)
+    return
+  }
+  if (st.talentPts < 1) {
+    toast('NO TALENT POINTS: REBIRTH FOR MORE', DIM)
+    return
+  }
+  st.talentPts--
+  st.talents[t.id] = tl(t.id) + 1
+  save()
+}
+
+function respecTalents() {
+  const t = now()
+  if (!st.respecConfirm || st.respecConfirm < t) {
+    st.respecConfirm = t + 3000 // a second tap within 3 s confirms
+    return
+  }
+  st.respecConfirm = 0
+  let back = 0
+  for (const id in st.talents) back += st.talents[id]
+  st.talents = {}
+  st.talentPts += back
+  toast('TALENTS RESET: ' + back + ' POINTS BACK', DIM)
+  save()
 }
 
 // ---------- equipment ----------
@@ -1339,7 +1892,7 @@ function feedPet() {
 }
 
 function petHit() {
-  const dmg = tapDamage() * (0.2 + 0.05 * st.pet.lv)
+  const dmg = tapDamage() * (0.2 + 0.05 * st.pet.lv) * (1 + tv('petpal'))
   addFloat(fmt(dmg), CX - 95, L.monY + 95, 0xff9ab0)
   st.petHop = 0.2
   hit(dmg)
@@ -1605,22 +2158,80 @@ function endRush() {
 }
 
 // ---------- offline ----------
-// gold the heroes earn in `seconds` while you are away (they farm, but don't advance)
-function offlineGold(seconds) {
+// Offline progress: with Auto-advance ON the heroes also clear stages while you are
+// away, one stage after another, until the time runs out or they reach a boss they
+// cannot beat alone in time (then they farm the stage before it). Heroes only: no
+// taps, skills or pet. Offline kills do not count for bounties, cards, the bestiary
+// or achievements. With Auto-advance OFF they farm your stage, as before.
+const OFFLINE_BOSS_MARGIN = 1.5 // shield and enrage make bosses harder: only fights with room to spare
+
+function offlineRun(seconds) {
+  const out = { gold: 0, stages: 0, stopBoss: 0, stage: st.stage, kills: st.kills }
   const dps = partyDps(false)
-  if (dps <= 0 || seconds <= 0) return 0
-  const capped = Math.min(seconds, offlineHours() * 3600)
-  const farmStage = st.stage % BOSS_EVERY === 0 ? Math.max(1, st.stage - 1) : st.stage
-  const killsPerSecond = dps / monsterHp(farmStage)
-  const gold = killsPerSecond * capped * goldFor(farmStage, false) * goldMult(false) * (1 + relicValue('dream'))
-  return Math.floor(gold)
+  if (dps <= 0 || seconds <= 0) return out
+  let left = Math.min(seconds, offlineHours() * 3600)
+  const gm = goldMult(false) * (1 + relicValue('dream')) * (1 + tv('night'))
+  let stage = st.stage
+  let kills = st.kills
+  if (st.auto && !st.chal.active && !st.rush.active) {
+    for (let n = 0; n < 2000 && left > 0; n++) {
+      if (stage % BOSS_EVERY === 0) {
+        const need = bossHp(stage) / dps
+        if (need * OFFLINE_BOSS_MARGIN > bossSeconds()) {
+          out.stopBoss = stage // too strong for the heroes alone
+          break
+        }
+        if (need > left) break // no time left for the fight
+        left -= need
+        out.gold += goldFor(stage, true) * gm * (1 + tv('bossloot'))
+        stage++
+        kills = 0
+      } else {
+        const per = monsterHp(stage) / dps
+        const todo = KILLS_PER_STAGE - kills
+        if (per * todo > left) {
+          // time runs out on this stage: count the kills that fit
+          const k = Math.floor(left / per)
+          kills += k
+          out.gold += k * goldFor(stage, false) * gm
+          left = 0
+          break
+        }
+        left -= per * todo
+        out.gold += todo * goldFor(stage, false) * gm
+        stage++
+        kills = 0
+      }
+    }
+  }
+  // stuck at a boss (or never moving): the rest of the time is spent farming
+  if (out.stopBoss) {
+    stage = Math.max(1, stage - 1)
+    kills = 0
+  }
+  if (left > 0) {
+    const farmStage = stage % BOSS_EVERY === 0 ? Math.max(1, stage - 1) : stage
+    out.gold += (left * dps) / monsterHp(farmStage) * goldFor(farmStage, false) * gm
+  }
+  out.gold = Math.floor(out.gold)
+  out.stages = Math.max(0, stage - st.stage)
+  out.stage = stage
+  out.kills = kills
+  return out
 }
 
 function awayFor(seconds) {
-  const g = offlineGold(seconds)
-  if (g > 0) st.gold += g
-  if (seconds >= 60 && g > 0) {
-    st.welcome = { away: duration(seconds), gold: g, capped: seconds > offlineHours() * 3600 }
+  const r = offlineRun(seconds)
+  if (r.gold > 0) st.gold += r.gold
+  if (r.stage !== st.stage) {
+    st.stage = r.stage
+    st.runBest = Math.max(st.runBest, st.stage)
+    st.best = Math.max(st.best, st.stage)
+    st.kills = r.kills
+    spawn()
+  } else st.kills = r.kills
+  if (seconds >= 60 && (r.gold > 0 || r.stages > 0)) {
+    st.welcome = { away: duration(seconds), gold: r.gold, capped: seconds > offlineHours() * 3600, stages: r.stages, stopBoss: r.stopBoss, auto: !!st.auto }
   }
 }
 
@@ -1634,7 +2245,7 @@ function spawn() {
   st.bossLeft = bossSeconds()
   const world = worldFor(st.stage)
   // now and then a loot chest shows up instead: little HP, lots of gold
-  st.chest = !st.boss && st.stage >= 3 && Math.random() < CHEST_CHANCE * (eventIs('chests') ? 3 : 1)
+  st.chest = !st.boss && st.stage >= 3 && Math.random() < CHEST_CHANCE * (eventIs('chests') ? 3 : 1) * (1 + tv('treasure'))
   if (st.chest) {
     st.maxHp = Math.ceil(st.maxHp * 0.5)
     st.hp = st.maxHp
@@ -1649,7 +2260,11 @@ function spawn() {
   st.shieldT = 6
   st.shieldOn = 0
   st.enraged = false
-  const id = st.boss ? world.boss : st.chest ? 'chest' : st.special === 'thief' ? 'thief' : world.enemies[(st.stage * 3 + st.kills) % world.enemies.length]
+  let id = st.boss ? world.boss : st.chest ? 'chest' : st.special === 'thief' ? 'thief' : world.enemies[(st.stage * 3 + st.kills) % world.enemies.length]
+  // during a festival its monster sometimes takes a normal monster's place
+  const sea = season()
+  const normal = !st.boss && !st.chest && st.special !== 'thief' && !st.rush.active
+  if (sea && normal && Math.random() < SEASON_SPAWN) id = sea.monster
   const e = ENEMIES[id]
   st.monsterId = id
   st.sprite = e.rows
@@ -1657,6 +2272,13 @@ function spawn() {
   // the second colour set appears the next time round all the worlds
   const lap = Math.floor((st.stage - 1) / (BOSS_EVERY * WORLDS.length))
   st.pal = e.pals[lap % e.pals.length]
+  // a rare shiny: other colours, lots of gold
+  st.shiny = normal && !st.special && Math.random() * SHINY_CHANCE < 1
+  if (st.shiny) {
+    st.pal = shinyPal(st.pal)
+    st.monsterName = 'SHINY ' + e.name
+    toast('A SHINY ' + e.name + ' APPEARED!', 0xfff3a0)
+  }
   st.monsterDirty = true
   if (st.world !== world) {
     if (st.world) toast('~ ' + world.name + ' ~', world.light ? world.light.color : 0x9dff7a)
@@ -1671,14 +2293,22 @@ function hit(amount) {
 }
 
 function kill() {
-  const special = st.chest ? CHEST_GOLD : st.special === 'thief' ? THIEF_GOLD : 1
-  const g = Math.floor(goldFor(st.stage, st.boss) * goldMult(true) * special * (st.boss && eventIs('bosses') ? 2 : 1))
+  const seasonal = !!(ENEMIES[st.monsterId] && ENEMIES[st.monsterId].seasonal)
+  const special = st.chest ? CHEST_GOLD : st.special === 'thief' ? THIEF_GOLD : st.shiny ? SHINY_GOLD : seasonal ? SEASON_GOLD : 1
+  const bossBonus = st.boss ? (eventIs('bosses') ? 2 : 1) * (1 + tv('bossloot')) : 1
+  const g = Math.floor(goldFor(st.stage, st.boss) * goldMult(true) * special * bossBonus)
+  if (st.shiny) {
+    st.stats.shinies++
+    st.shinies[st.monsterId] = true
+    toast('SHINY CAUGHT! +' + fmt(g), 0xfff3a0)
+  }
   st.gold += g
   st.stats.kills++
   st.stats.goldEarned += g
   addFloat('+' + fmt(g), CX + 40, L.monY + 10, GOLD)
   startPoof()
   countKill(st.monsterId)
+  rollCard(st.monsterId)
   if (st.chest) {
     st.stats.chests++
     toast('LOOT CHEST! +' + fmt(g), GOLD)
@@ -1784,7 +2414,7 @@ function buyHero(i, n) {
   const perk = h.perks.find((p) => p.lv > before && p.lv <= st.lv[h.id])
   const doubled = Math.floor(st.lv[h.id] / 25) > Math.floor(before / 25)
   const skill = SKILLS.find((k) => k.hero === h.id)
-  const skillUp = skill && before >= skill.heroLv && skillLevel(skill.id) > Math.floor(before / SKILL_LEVEL_EVERY) + 1
+  const skillUp = skill && before >= skill.heroLv && Math.floor(st.lv[h.id] / SKILL_LEVEL_EVERY) > Math.floor(before / SKILL_LEVEL_EVERY)
   if (perk && perk.kind === 'skill') {
     const s = SKILLS.find((k) => k.id === perk.skill)
     toast(s.name.toUpperCase() + ' SKILL UNLOCKED!', s.color)
@@ -1857,8 +2487,8 @@ function useSkill(i) {
 // ---------- rebirth ----------
 function rebirthGain() {
   if (st.runBest < REBIRTH_FROM) return 0
-  // stage 20 -> 3, stage 30 -> 15, stage 40 -> 33, stage 50 -> 57 Stardust
-  return Math.max(1, Math.floor(Math.pow((st.runBest - 15) / 2.5, 1.7) * (1 + 0.25 * conLv('draco'))))
+  // stage 20 -> 5, stage 30 -> 23, stage 40 -> 52, stage 50 -> 90 Stardust
+  return Math.max(5, Math.floor((Math.pow((st.runBest - 15) / 2.5, 1.7) + 2) * (1 + 0.25 * conLv('draco'))))
 }
 
 function rebirthTap() {
@@ -1880,6 +2510,8 @@ function rebirthTap() {
   st.dust += gain
   st.stats.dustEarned += gain
   st.stats.rebirths++
+  const pts = talentGain() // before the reset: it depends on how far this run went
+  st.talentPts += pts
   const starred = giveStar() // picked before the reset, from the heroes used this run
   freshRun(st)
   for (const k of SKILLS) st.skills[k.id] = { readyAt: 0, activeUntil: 0 }
@@ -1887,34 +2519,19 @@ function rebirthTap() {
   save()
   closeMenu()
   toast('REBORN! +' + gain + ' DUST, ' + starred.name.toUpperCase() + ' +STAR', PURPLE)
-}
-
-// ---------- pause ----------
-function setPaused(p) {
-  const t = now()
-  if (p && !st.paused) {
-    pausedAt = t
-    save()
-  } else if (!p && st.paused) {
-    // paused time does not count for skills either
-    const d = t - pausedAt
-    for (const k in st.skills) {
-      if (st.skills[k].readyAt > pausedAt) st.skills[k].readyAt += d
-      if (st.skills[k].activeUntil > pausedAt) st.skills[k].activeUntil += d
-    }
-  }
-  st.paused = p
-  lastTick = t
+  toast('+' + pts + ' TALENT POINT' + (pts > 1 ? 'S' : '') + ' (TALENTS TAB)', 0x4de0ff)
 }
 
 // ---------- menu ----------
 // Two menus: swipe left (or the menu button) for things you DO, swipe up for
 // things you CHECK. Some tabs stay hidden until they are useful.
 const MENUS = {
-  main: ['HEROES', 'SKILLS', 'RELICS', 'REBIRTH', 'GEAR', 'TRAVEL', 'ASCEND', 'MODES'],
-  info: ['GOALS', 'BESTIARY', 'STATS', 'GUIDE', 'SETTINGS']
+  main: ['HEROES', 'SKILLS', 'RELICS', 'REBIRTH', 'TALENTS', 'GEAR', 'TRAVEL', 'ASCEND', 'MODES'],
+  info: ['GOALS', 'AWARDS', 'BESTIARY', 'CARDS', 'STATS', 'GUIDE', 'SETTINGS']
 }
 const TAB_UNLOCK = {
+  CARDS: () => cardCount() > 0,
+  TALENTS: () => st.stats.rebirths >= 1 || st.talentPts > 0 || Object.keys(st.talents).length > 0,
   TRAVEL: () => st.stats.rebirths >= 1 || !!st.trip,
   MODES: () => st.best >= 25 || !!st.chal.active || !!st.rush.active,
   ASCEND: () => (st.best >= ASC_MIN_BEST && st.stats.rebirths >= ASC_MIN_REBIRTHS) || st.stats.ascensions > 0 || st.asc.shards > 0
@@ -1944,11 +2561,10 @@ function openMenu(kind) {
   menu.kind = kind || 'main'
   menu.cat = menuTabs()[0] // always start fresh on the first tab, page 1
   menu.page = 0
-  transition()
+  showMenuNow()
 }
 
 function closeMenu() {
-  finishAnim()
   menu.open = false
   menu.kind = 'main'
   menu.cat = 0 // the next time it opens on HEROES, page 1
@@ -1962,64 +2578,14 @@ function setCat(c) {
   menu.cat = c
   menu.page = 0
   if (same || !menu.open) return
-  transition()
+  showMenuNow()
 }
 
-// ---------- transitions: a row cascade ----------
-// The header, dots and buttons change at once; the active dot pops a little bigger,
-// and the 3 rows appear one after another (top to bottom), REVEAL_STEP_MS apart.
-// Why not something that slides: the watch repaints everything under a moving
-// widget, so a sweep across the screen meant a full repaint every frame (it
-// flickered on the real Bip 6). This needs only ~4 small redraws in total.
-// The heavy screen redraw waits while the rows come in.
-const REVEAL_STEP_MS = 70
-const ANIM_STEP_MS = 35
-const ANIM_TOTAL_MS = REVEAL_STEP_MS * ROWS_PER_PAGE
-let anim = null // { start, shown } while rows are coming in
-let animTimer = null
-
-// how many rows of the page are shown right now
-function rowsShown() {
-  return anim ? anim.shown : ROWS_PER_PAGE
-}
-
-function transition() {
-  finishAnim()
-  if (!st || !st.anim || !menu.open) return
-  anim = { start: now(), shown: 0 }
-  updateScreen() // the new header right away; rows hidden
-  try {
-    animTimer = setInterval(stepAnim, ANIM_STEP_MS)
-  } catch (e) {
-    finishAnim()
-    updateScreen()
-  }
-}
-
-function stepAnim() {
-  try {
-    if (!anim) return finishAnim()
-    const n = Math.min(ROWS_PER_PAGE, 1 + Math.floor((now() - anim.start) / REVEAL_STEP_MS))
-    if (n !== anim.shown) {
-      anim.shown = n
-      if (n >= ROWS_PER_PAGE) finishAnim()
-      if (menu.open) updateMenu()
-    }
-  } catch (e) {
-    finishAnim()
-  }
-}
-
-function finishAnim() {
-  if (animTimer !== null) {
-    try {
-      clearInterval(animTimer)
-    } catch (e) {
-      // already stopped
-    }
-    animTimer = null
-  }
-  anim = null
+// Draw the menu right away after a change (tab, page, open), instead of waiting
+// for the next tick. (Menu animations were tried and removed: the Bip 6 screen
+// can't redraw this much fast enough, so they only flickered.)
+function showMenuNow() {
+  if (menu.open && ui.rows) updateScreen()
 }
 
 // move d tabs left/right within the open menu (wraps around)
@@ -2036,11 +2602,11 @@ function pageCount() {
 function setPage(p) {
   const old = menu.page
   menu.page = Math.max(0, Math.min(pageCount() - 1, p))
-  if (menu.page !== old && menu.open) transition()
+  if (menu.page !== old) showMenuNow()
 }
 
 function countdown(ms) {
-  const s = Math.ceil(ms / 1000)
+  const s = Math.max(0, Math.ceil(ms / 1000))
   return s >= 60 ? Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') : s + 's'
 }
 
@@ -2150,9 +2716,59 @@ function extraTabRows(cat) {
       const seen = kills > 0
       rows.push({
         title: seen ? e.name : '???',
-        detail: seen ? fmt(Math.min(kills, goal)) + ' / ' + goal + ' kills' : 'not met yet',
+        detail: seen ? fmt(Math.min(kills, goal)) + ' / ' + goal + ' kills' + (st.shinies[id] ? ', shiny!' : '') : 'not met yet',
         right: kills >= goal ? '+1% dmg' : '',
         on: kills >= goal,
+        icon: seen ? e.pals[0][Object.keys(e.pals[0])[0]] : 0x3a3150,
+        letter: seen ? e.name[0] : '?'
+      })
+    }
+    return rows
+  }
+  if (cat === 'TALENTS') {
+    const rows = [
+      { title: 'Points: ' + st.talentPts, detail: 'each rebirth: +' + talentGain() + ' now', right: '', on: false, icon: 0x4de0ff, letter: 'T' }
+    ]
+    for (const t of TALENTS) {
+      const lv = tl(t.id)
+      const open = talentOpen(t)
+      const maxed = lv >= TALENT_MAX
+      rows.push({
+        title: t.name + ' ' + lv + '/' + TALENT_MAX,
+        detail: !open ? t.branch + ': needs ' + talentNeed(t) + ' points' : t.branch + ': ' + talentText(t, Math.max(1, lv)),
+        right: maxed ? 'MAX' : !open ? 'LOCKED' : '1 point',
+        on: !maxed && open && st.talentPts > 0,
+        icon: !open ? 0x3a3150 : { TAP: 0xff7a4a, HEROES: 0x4dd06a, GOLD: GOLD, IDLE: 0x5aa8ff }[t.branch],
+        letter: t.branch[0],
+        action: () => buyTalent(t)
+      })
+    }
+    const confirming = st.respecConfirm && st.respecConfirm > now()
+    rows.push({
+      title: confirming ? 'TAP AGAIN!' : 'Respec',
+      detail: 'all points back, free',
+      right: confirming ? 'SURE?' : 'RESET',
+      on: false,
+      icon: 0x6a6878,
+      letter: 'R',
+      action: respecTalents
+    })
+    return rows
+  }
+  if (cat === 'CARDS') {
+    const rows = [
+      { title: 'Cards ' + cardCount() + '/' + CARD_IDS.length, detail: 'rare drops near best stage', right: '', on: false, icon: 0xff7ac8, letter: 'C' }
+    ]
+    for (const id of CARD_IDS) {
+      const e = ENEMIES[id]
+      const lv = st.cards[id] || 0
+      const seen = (st.bestiary[id] || 0) > 0 || lv > 0
+      const k = CARD_KIND_OF[id]
+      rows.push({
+        title: seen ? e.name : '???',
+        detail: lv ? pctText(cardValue(id, lv)) + ' ' + k.text + (lv < CARD_MAX_LV ? ', next ' + pctText(cardValue(id, lv + 1)) : '') : seen ? 'card: ' + pctText(cardValue(id, 1)) + ' ' + k.text : 'not met yet',
+        right: lv ? (lv >= CARD_MAX_LV ? 'MAX' : 'LV ' + lv) : '',
+        on: lv > 0,
         icon: seen ? e.pals[0][Object.keys(e.pals[0])[0]] : 0x3a3150,
         letter: seen ? e.name[0] : '?'
       })
@@ -2253,19 +2869,23 @@ function guideRows() {
     g('Gold thief', MONSTERS, 'The gold badge shows seconds left.', 'Catch it in time for ' + THIEF_GOLD + 'x gold.'),
     g('Armored', MONSTERS, 'Shield badge: heroes only do half', 'damage. Tapping matters more.'),
     g('Healing', MONSTERS, '+ badge: it heals itself when you', 'stop tapping. Keep hitting it!'),
+    g('Shiny monsters', MONSTERS, '1 in ' + SHINY_CHANCE + ' monsters: new colours', 'and ' + SHINY_GOLD + 'x gold. Catch them all!'),
     g('Boss badges', MONSTERS, 'Shield: blocks 90% for 2 seconds.', '! = enraged: its timer runs faster.'),
     // the long game
     g('Rebirth', LONG, 'From stage ' + REBIRTH_FROM + ' you can start over', 'and earn Stardust (more if further).'),
     g('Stardust', LONG, 'Each unspent Stardust: +' + Math.round(DUST_BONUS * 100) + '%', 'damage and gold. Or buy relics.'),
     g('Relics', LONG, 'Permanent upgrades bought with', 'Stardust. They survive rebirths.'),
+    g('Talents', LONG, 'Rebirths give talent points: spend', 'them in TALENTS. Respec is free.'),
     g('Hero stars', LONG, 'Each rebirth gives a used hero a', 'star: +' + Math.round(STAR_BONUS * 100) + '% for that hero, forever.'),
     // goals
-    g('Achievements', GOALS_C, 'Reach goals (kills, bosses...) for', 'small permanent bonuses.'),
+    g('Achievements', GOALS_C, 'Reach goals (kills, bosses...) for', 'small bonuses forever (AWARDS).'),
     g('Daily goal', GOALS_C, 'A new small task every day.', 'Finish it to earn Stardust.'),
     g('Steps', GOALS_C, 'Every ' + String(STEPS_PER_DUST).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + ' steps you walk today', 'gives you 1 Stardust.'),
     // away
     g('Offline gold', AWAY, 'Heroes farm while the app is closed,', 'up to ' + hoursText(offlineHours()) + ' (Dreamcatcher: more).'),
+    g('Offline stages', AWAY, 'Auto-advance ON: heroes also clear', 'stages, until a boss is too strong.'),
     g('Auto-advance', AWAY, 'In SETTINGS: while farming, move', 'to the next stage by itself.'),
+    g('Scenery', BASICS, 'In SETTINGS: FULL, LIGHT or OFF.', 'Less background motion = smoother.'),
     // extras
     g('Shooting star', EXTRA, 'Tap the flying star quickly for', 'gold, x5 damage or ready skills.'),
     g('Combo', EXTRA, 'Keep tapping (under 1s apart) for', 'up to +50% tap damage.'),
@@ -2274,6 +2894,11 @@ function guideRows() {
     g('Expeditions', EXTRA, 'TRAVEL: send a hero away 1-8h.', 'It skips fights but brings loot.'),
     g('Element pairs', EXTRA, 'Both heroes of a colour at lv 25+', 'deal +30% damage.'),
     g('Bestiary', EXTRA, 'Kill 100 of each monster type', 'for +1% damage each.'),
+    g('Monster cards', EXTRA, 'Rare drops near your best stage.', 'Each: a bonus forever, max lv ' + CARD_MAX_LV + '.'),
+    g('Festivals', EXTRA, 'Real-date events with their own', 'monster: x' + SEASON_GOLD + ' gold, a limited card.'),
+    g('Login streak', GOALS_C, 'Play days in a row: rewards in', 'GOALS, day 7 is big. Miss = reset.'),
+    g('Bounties', GOALS_C, 'Three tasks in GOALS. Claim for', 'Stardust; a new one in ' + BOUNTY_REFILL_MIN + ' min.'),
+    g('Late worlds', EXTRA, 'Past stage ' + LATE_FROM + ': three new worlds', 'with new monsters and bosses.'),
     g('Weekly event', EXTRA, 'A new bonus every Monday,', 'shown on the GOALS page.'),
     // the biggest goals
     g('Ascension', BIG, 'Stage ' + ASC_MIN_BEST + ' + ' + ASC_MIN_REBIRTHS + ' rebirths: restart', 'everything for Shards (ASCEND).'),
@@ -2348,8 +2973,20 @@ function menuRows() {
     const k = dailyKind()
     const steps = st.stepsToday
     const ev = weekEvent()
+    const sea = season()
+    const lg = st.login
     const rows = [
+      ...(sea ? [{ title: sea.name, detail: sea.many + ' until ' + seasonEnd(sea), right: 'FESTIVAL', on: true, icon: sea.color, letter: 'F' }] : []),
       { title: ev.name, detail: ev.text, right: 'THIS WEEK', on: true, icon: GOLD, letter: 'W' },
+      {
+        title: 'Login day ' + streakDay() + '/7',
+        detail: lg.claimed ? 'come back tomorrow' : streakDay() === 7 ? 'big day! +' + STREAK_TREATS + ' treats too' : 'streak: ' + lg.streak + (lg.streak > 1 ? ' days' : ' day'),
+        right: lg.claimed ? 'DONE' : '+' + streakReward() + ' dust',
+        on: !lg.claimed,
+        icon: 0x4de0ff,
+        letter: 'L',
+        action: claimStreak
+      },
       {
         title: 'Daily goal',
         detail: st.daily.done ? 'done! new one tomorrow' : k.text(st.daily.target) + ' ' + fmt(dailyProgress()) + '/' + fmt(st.daily.target),
@@ -2358,6 +2995,21 @@ function menuRows() {
         icon: 0xd4537e,
         letter: 'D'
       },
+      ...st.bounties.map((b, i) => {
+        if (!b || !b.kind) {
+          return { title: 'Bounty', detail: 'new one in ' + countdown(((b && b.wait) || 0) - now()), right: '', on: false, icon: 0x5a5478, letter: 'B' }
+        }
+        const ready = bountyReady(b)
+        return {
+          title: 'Bounty +' + bountyReward() + ' dust',
+          detail: bountyKind(b).text(b.target),
+          right: ready ? 'CLAIM' : fmt(bountyProgress(b)) + '/' + fmt(b.target),
+          on: ready,
+          icon: 0xff9a3d,
+          letter: 'B',
+          action: () => claimBounty(i)
+        }
+      }),
       steps >= 0
         ? {
           title: 'Steps ' + fmt(steps),
@@ -2369,15 +3021,26 @@ function menuRows() {
         }
         : { title: 'Steps', detail: 'no step counter found', right: '', on: false, icon: 0x5a5478, letter: 'S' }
     ]
-    for (const a of ACHIEVEMENTS) {
-      const done = !!st.ach[a.id]
+    return rows
+  }
+  // achievements have their own tab: the unfinished ones first, closest to done on
+  // top (the next one to aim for), then the finished ones
+  if (cat === 'AWARDS') {
+    const progress = (a) => Math.min(1, a.stat() / a.goal)
+    const open = ACHIEVEMENTS.filter((a) => !st.ach[a.id]).sort((a, b) => progress(b) - progress(a))
+    const done = ACHIEVEMENTS.filter((a) => st.ach[a.id])
+    const rows = [
+      { title: 'Awards ' + achCount() + '/' + ACHIEVEMENTS.length, detail: 'small bonuses forever', right: '', on: false, icon: GOLD, letter: '!' }
+    ]
+    for (const a of open.concat(done)) {
+      const got = !!st.ach[a.id]
       rows.push({
         title: a.name,
         detail: a.desc,
-        right: done ? '+' + Math.round(a.x * 100) + '% ' + (a.kind === 'dmg' ? 'dmg' : 'gold') : fmt(Math.min(a.stat(), a.goal)) + '/' + fmt(a.goal),
-        on: done,
-        icon: done ? GOLD : 0x5a5478,
-        letter: done ? '!' : '?'
+        right: got ? '+' + Math.round(a.x * 100) + '% ' + (a.kind === 'dmg' ? 'dmg' : 'gold') : fmt(Math.min(a.stat(), a.goal)) + '/' + fmt(a.goal),
+        on: got,
+        icon: got ? GOLD : 0x5a5478,
+        letter: got ? '!' : '?'
       })
     }
     return rows
@@ -2422,14 +3085,14 @@ function menuRows() {
         action: resetTap
       },
       {
-        title: 'Animations',
-        detail: 'menu rows cascade in',
-        right: st.anim ? 'ON' : 'OFF',
-        on: st.anim,
-        icon: 0x9b6cff,
-        letter: '~',
+        title: 'Scenery',
+        detail: 'background motion; less = smoother',
+        right: SCENERY_NAMES[st.scenery],
+        on: st.scenery > 0,
+        icon: 0x4dd06a,
+        letter: 'S',
         action: () => {
-          st.anim = !st.anim
+          st.scenery = (st.scenery + 1) % 3
           save()
         }
       }
@@ -2445,6 +3108,7 @@ function menuRows() {
     { title: 'Ascensions ' + s.ascensions, detail: 'challenges won ' + s.challenges, right: '', on: false, icon: 0x9cc4ea, letter: 'A' },
     { title: 'Achievements ' + achCount() + '/' + ACHIEVEMENTS.length, detail: 'dailies ' + s.dailies + ', step dust ' + s.stepDust, right: '', on: false, icon: 0xd4537e, letter: '!' },
     { title: 'Thieves ' + s.thieves, detail: 'skills used ' + fmt(s.skillsUsed), right: '', on: false, icon: GOLD, letter: 'T' },
+    { title: 'Cards ' + cardCount() + '/' + CARD_IDS.length, detail: 'bounties done ' + s.bounties, right: '', on: false, icon: 0xff7ac8, letter: 'C' },
     { title: 'Hero stars ' + starTotal, detail: '+50% per star', right: '', on: false, icon: GOLD, letter: '*' },
     { title: 'Best stage ' + st.best, detail: 'this run: ' + st.runBest, right: '', on: false, icon: 0x4dd06a, letter: '#' },
     { title: 'Kills ' + fmt(s.kills), detail: 'bosses ' + fmt(s.bosses) + ', taps ' + fmt(s.taps), right: '', on: false, icon: 0xff5c5c, letter: 'K' },
@@ -2800,6 +3464,11 @@ function resetParticle(p, mode, anywhere) {
     p.y = anywhere ? rnd(0, GROUND_Y) : GROUND_Y
     p.vx = rnd(-10, 10)
     p.vy = -rnd(30, 50)
+  } else if (mode === 'rain') {
+    p.x = rnd(20, W)
+    p.y = anywhere ? rnd(0, GROUND_Y) : -4
+    p.vx = -30
+    p.vy = rnd(170, 230)
   } else if (mode === 'dust') {
     p.x = anywhere ? rnd(0, W) : -4
     p.y = rnd(110, GROUND_Y - 4)
@@ -2843,23 +3512,40 @@ function applyWorld(w) {
   scene.fx.forEach((p) => resetParticle(p, w.fx.mode, true))
 }
 
+// Scenery setting: how much of the background moves. Every moving circle is a
+// widget update (and a small repaint) each tick, so LIGHT and OFF run smoother.
+const SCENERY_NAMES = ['OFF', 'LIGHT', 'FULL']
+const SCENERY_PARTICLES = [0, 4, 8] // how many of the 8 particles are shown
+const SCENERY_CLOUD_STEP = [0, 0.35, 0] // LIGHT moves the slow clouds in steps (seconds)
+
 function animateScene(dt) {
   const w = worldFor(st.stage)
   if (w !== scene.world) applyWorld(w)
+  const level = st.scenery === undefined ? 1 : st.scenery
 
-  if (w.clouds) {
-    for (const c of scene.clouds) {
-      c.x += c.speed * dt
-      if (c.x > W + 50) c.x = -50
-      const x = Math.round(c.x)
-      setCircle(c.parts[0], x, c.y, 14, w.clouds)
-      setCircle(c.parts[1], x - 17, c.y + 5, 11, w.clouds)
-      setCircle(c.parts[2], x + 17, c.y + 5, 11, w.clouds)
+  // clouds drift a few pixels a second; OFF keeps them still (no updates at all)
+  if (level > 0 && w.clouds) {
+    scene.cloudT = (scene.cloudT || 0) + dt
+    if (scene.cloudT >= SCENERY_CLOUD_STEP[level]) {
+      const cdt = scene.cloudT
+      scene.cloudT = 0
+      for (const c of scene.clouds) {
+        c.x += c.speed * cdt
+        if (c.x > W + 50) c.x = -50
+        const x = Math.round(c.x)
+        setCircle(c.parts[0], x, c.y, 14, w.clouds)
+        setCircle(c.parts[1], x - 17, c.y + 5, 11, w.clouds)
+        setCircle(c.parts[2], x + 17, c.y + 5, 11, w.clouds)
+      }
     }
   }
 
   const mode = w.fx.mode
-  for (const p of scene.fx) {
+  const count = SCENERY_PARTICLES[level]
+  for (let i = 0; i < scene.fx.length; i++) {
+    const p = scene.fx[i]
+    setVisible(p.o, i < count)
+    if (i >= count) continue
     p.t -= dt
     if (mode === 'stars' || mode === 'fireflies' || mode === 'embers') {
       if (p.t <= 0) {
@@ -2905,8 +3591,8 @@ const BUY_OFF = 0x3a3150
 const BUY_OFF_TEXT = 0x9a94b8
 // HEROES, SKILLS, RELICS, REBIRTH, GOALS, STATS, SETTINGS
 // (GUIDE is the warm brown of an old book)
-// HEROES, SKILLS, RELICS, REBIRTH, GEAR, TRAVEL, ASCEND, GOALS, BESTIARY, MODES, STATS, GUIDE, SETTINGS
-const CAT_COLORS = [0xe8663a, 0x378add, 0x8a5cf0, 0xe0a820, 0xb87333, 0x2f9ea8, 0x5a6ad8, 0xd4537e, 0x6a8a3a, 0xd23a3a, 0x1d9e75, 0xb07a3a, 0x6a6878]
+// HEROES, SKILLS, RELICS, REBIRTH, GEAR, TRAVEL, ASCEND, GOALS, BESTIARY, MODES, STATS, GUIDE, SETTINGS, CARDS
+const CAT_COLORS = [0xe8663a, 0x378add, 0x8a5cf0, 0xe0a820, 0xb87333, 0x2f9ea8, 0x5a6ad8, 0xd4537e, 0x6a8a3a, 0xd23a3a, 0x1d9e75, 0xb07a3a, 0x6a6878, 0xc0408f, 0xc9962a, 0x2a8fd0]
 const LEDGE = 5 // how far the darker ledge shows under a chunky button
 
 function mkChunky(box, face, radius) {
@@ -3129,16 +3815,16 @@ function buildScreen() {
 
   // --- welcome-back overlay ---
   ui.welcome = [
-    mkRect(CX - 150, 120, 300, 180, INK, 16),
-    mkStroke(CX - 150, 120, 300, 180, GOLD, 16),
-    mkText(CX - 150, 130, 300, 36, 26, GOLD),
-    mkText(CX - 150, 172, 300, 26, 18, WHITE),
-    mkText(CX - 150, 200, 300, 26, 18, WHITE),
-    mkText(CX - 150, 226, 300, 34, 26, GOLD),
-    mkText(CX - 150, 266, 300, 22, 15, ROW_SUB)
+    mkRect(CX - 150, 112, 300, 208, INK, 16),
+    mkStroke(CX - 150, 112, 300, 208, GOLD, 16),
+    mkText(CX - 150, 122, 300, 36, 26, GOLD),
+    mkText(CX - 150, 164, 300, 26, 18, WHITE),
+    mkText(CX - 150, 192, 300, 26, 18, WHITE),
+    mkText(CX - 150, 218, 300, 34, 26, GOLD),
+    mkText(CX - 150, 290, 300, 22, 15, ROW_SUB),
+    mkText(CX - 150, 258, 300, 26, 15, 0xff9a3d) // where the heroes stopped, or a hint
   ]
   setText(ui.welcome[2], 'WELCOME BACK!')
-  setText(ui.welcome[4], 'Your heroes earned')
   setText(ui.welcome[6], 'tap to continue')
 
   // touch layer: an empty full-screen TEXT widget created last, so it is on top of
@@ -3183,9 +3869,10 @@ function renderMonster() {
     monCanvas.clear({ x: 0, y: 0, w: L.monW, h: L.monH })
     const scale = st.boss ? 11 : 10
     const size = 12 * scale
-    const shakeX = st.shake > 0 ? (st.shake % 2 ? 4 : -4) : 0
-    const bobY = st.bob ? -3 : 0 // gentle idle "breathing"
-    drawSprite(monCanvas, st.sprite, st.flash > 0 ? WHITE_PAL : st.pal, (L.monW - size) / 2 + shakeX, (L.monH - size) / 2 - 4 + bobY, scale)
+    // shake and bob normally move the whole canvas (placeMonster); only if the watch
+    // cannot move it are they drawn into the picture instead
+    const off = canMoveMonster ? { x: 0, y: 0 } : monsterOffset()
+    drawSprite(monCanvas, st.sprite, st.flash > 0 ? WHITE_PAL : st.pal, (L.monW - size) / 2 + off.x, (L.monH - size) / 2 - 4 + off.y, scale)
     st.monsterDirty = false
     monsterFailures = 0
   } catch (e) {
@@ -3195,7 +3882,34 @@ function renderMonster() {
   }
 }
 
+// Hit shake and idle bob: a small offset of the monster.
+function monsterOffset() {
+  return { x: st.shake > 0 ? (st.shake % 2 ? 4 : -4) : 0, y: st.bob ? -3 : 0 }
+}
+
+// Moving the canvas widget costs one property change; redrawing the sprite costs
+// ~40 canvas calls. So shake and bob move the canvas, and the sprite is only redrawn
+// for a new monster or a crit flash. If moving ever fails, fall back to redrawing.
+let canMoveMonster = true
+let monPos = { x: -1, y: -1 }
+function placeMonster() {
+  if (!canMoveMonster || !monCanvas) return
+  const off = monsterOffset()
+  const x = L.monX + off.x
+  const y = L.monY + off.y
+  try {
+    if (x !== monPos.x) monCanvas.setProperty(prop.X, x)
+    if (y !== monPos.y) monCanvas.setProperty(prop.Y, y)
+    monPos = { x, y }
+  } catch (e) {
+    console.log('TAP QUEST cannot move the monster canvas, redrawing instead: ' + e)
+    canMoveMonster = false
+    st.monsterDirty = true
+  }
+}
+
 function updateHome() {
+  placeMonster()
   setText(ui.gold, fmt(st.gold))
 
   // stage badge; under it the kill pips, or FARMING, or the boss timer
@@ -3219,7 +3933,7 @@ function updateHome() {
   } else if (farming) sub = 'FARMING  (best ' + st.runBest + ')' + (st.auto ? ' AUTO' : '')
   setText(ui.stageSub, sub)
   setColor(ui.stageSub, subColor)
-  const showPips = !st.boss && !farming
+  const showPips = !sub
   updateBadges()
   updateExtras()
   ui.pips.forEach((o, i) => {
@@ -3244,7 +3958,7 @@ function updateHome() {
   setText(ui.monName, st.monsterName)
   setColor(
     ui.monName,
-    st.boss ? 0xc77dff : st.special === 'thief' ? GOLD : st.special === 'armored' ? 0x9cc4ea : st.special === 'healer' ? 0x4dd06a : WHITE
+    st.boss ? 0xc77dff : st.shiny ? 0xfff3a0 : st.special === 'thief' ? GOLD : st.special === 'armored' ? 0x9cc4ea : st.special === 'healer' ? 0x4dd06a : WHITE
   )
   setText(ui.hp, fmt(Math.max(0, Math.ceil(st.hp))) + ' / ' + fmt(st.maxHp))
   setVisible(ui.barFill, bw >= 4)
@@ -3343,16 +4057,15 @@ function updateMenu() {
     const c = tabs[i]
     setVisible(d, c !== undefined)
     // the active dot pops bigger while the rows come in
-    if (c !== undefined) setCircle(d, dotX(i), L.dotY - 6, c === menu.cat ? (anim && anim.shown < 2 ? 8 : 6) : 4, c === menu.cat ? WHITE : darken(CAT_COLORS[c], info ? 0.8 : 0.55))
+    if (c !== undefined) setCircle(d, dotX(i), L.dotY - 6, c === menu.cat ? 6 : 4, c === menu.cat ? WHITE : darken(CAT_COLORS[c], info ? 0.8 : 0.55))
   })
-  const pages = pageCount()
+  const rows = menuRows()
+  const pages = Math.max(1, Math.ceil(rows.length / ROWS_PER_PAGE))
   if (menu.page >= pages) menu.page = pages - 1
   setText(ui.menuTitle, CATS[menu.cat] + (pages > 1 ? '  ' + (menu.page + 1) + '/' + pages : ''))
-
-  const rows = menuRows()
   ui.rows.forEach((w, i) => {
     const row = rows[menu.page * ROWS_PER_PAGE + i]
-    const show = !!row && i < rowsShown()
+    const show = !!row
     const guide = show && !!row.lines
     ;[w.bg, w.edge, w.icon, w.letter, w.title].forEach((o) => setVisible(o, show))
     setVisible(w.detail, show && !guide)
@@ -3418,7 +4131,10 @@ function updateScreen() {
   if (showWelcome) {
     const w = st.welcome
     setText(ui.welcome[3], 'Away for ' + w.away + (w.capped ? ' (max ' + hoursText(offlineHours()) + ')' : ''))
+    setText(ui.welcome[4], w.stages ? 'Heroes cleared +' + w.stages + (w.stages > 1 ? ' stages' : ' stage') : 'Your heroes earned')
     setText(ui.welcome[5], fmt(w.gold) + ' gold')
+    // why they stopped (a boss), or that they only farmed (Auto-advance is off)
+    setText(ui.welcome[7], w.stopBoss ? 'stopped at the stage ' + w.stopBoss + ' boss' : w.auto ? '' : 'Auto-advance OFF: they only farmed')
   }
   ui.welcome.forEach((o) => setVisible(o, showWelcome))
 
@@ -3456,7 +4172,7 @@ const TIPS = [
   { id: 'enrage', when: () => st.boss && st.enraged, title: 'ENRAGED!', body: 'From stage 15 a boss at half HP gets angry (!) and its timer runs faster.' },
   { id: 'star', when: () => !!st.star, title: 'SHOOTING STAR', body: 'Tap the star before it flies off: gold, x' + FRENZY_MULT + ' damage or all skills ready!' },
   { id: 'combo', when: () => st.combo >= 5, title: 'COMBO', body: 'Keep tapping fast: each hit in a row adds +1% damage, up to +' + COMBO_MAX + '% (right icon).' },
-  { id: 'skill', when: () => SKILLS.some((k) => skillLevel(k.id) > 0), title: 'NEW SKILL', body: 'A hero reached level 10 and unlocked a skill. Use it in the SKILLS tab.' },
+  { id: 'skill', when: () => SKILLS.some((k) => skillLevel(k.id) > 0), title: 'NEW SKILL', body: 'A hero reached level 10 and unlocked a skill. Tap its button below the monster to use it.' },
   { id: 'gear', when: () => GEAR_SLOTS.some((g) => !!st.gear[g.id]), title: 'GEAR', body: 'Bosses can drop gear. Better pieces equip themselves, the rest becomes Stardust.' },
   { id: 'pet', when: () => st.pet.treats > 0, title: 'PET TREATS', body: 'Your pet (left) hits on its own. Feed it treats in the GEAR tab to make it stronger.' },
   { id: 'rebirth', when: () => st.runBest >= REBIRTH_FROM, title: 'REBIRTH', body: 'Stage ' + REBIRTH_FROM + '! REBIRTH restarts the run for Stardust. Spend it on RELICS.' },
@@ -3464,6 +4180,20 @@ const TIPS = [
   { id: 'travel', when: () => st.stats.rebirths >= 1, title: 'EXPEDITIONS', body: 'In TRAVEL send a hero away for 1-8 h. It brings back Stardust, treats and gold.' },
   { id: 'pair', when: () => Object.keys(ELEMENTS).some(pairActive), title: 'ELEMENT PAIR', body: 'Two heroes of the same color at level ' + PAIR_LEVEL + '+ both deal +30% damage.' },
   { id: 'modes', when: () => st.best >= 25, title: 'NEW MODES', body: 'MODES has challenges with forever rewards, and a daily Boss Rush for Stardust.' },
+  { id: 'shiny', when: () => !!st.shiny, title: 'SHINY!', body: 'A rare shiny monster (1 in ' + SHINY_CHANCE + '): x' + SHINY_GOLD + ' gold. The bestiary remembers every one you catch.' },
+  {
+    id: 'season',
+    when: () => !!season() && !!ENEMIES[st.monsterId] && !!ENEMIES[st.monsterId].seasonal,
+    title: 'FESTIVAL!',
+    body: () => {
+      const s = season()
+      return (s ? s.name + ' until ' + seasonEnd(s) : 'A festival') + ': its monsters give x' + SEASON_GOLD + ' gold, and a card you can only get now.'
+    }
+  },
+  { id: 'talents', when: () => st.talentPts > 0, title: 'TALENT POINTS', body: 'Rebirths give talent points. Spend them in TALENTS (swipe left). Respec is free.' },
+  { id: 'streak', when: () => st.login.streak >= 2 && !st.login.claimed, title: 'LOGIN STREAK', body: 'Days in a row! Claim the reward in GOALS (swipe up). Miss a day and it starts over.' },
+  { id: 'bounty', when: () => st.bounties.some(bountyReady), title: 'BOUNTY DONE', body: 'Claim its Stardust in GOALS (swipe up). A new bounty comes ' + BOUNTY_REFILL_MIN + ' min later.' },
+  { id: 'card', when: () => cardCount() > 0, title: 'MONSTER CARD!', body: 'A rare drop: a small bonus forever. Find it again to level it up. See CARDS (swipe up).' },
   { id: 'bestiary', when: () => bestiaryDone() > 0, title: 'BESTIARY', body: 'You beat enough of one monster: +1% damage forever. See BESTIARY for the rest.' },
   { id: 'ascend', when: () => canAscend(), title: 'ASCENSION', body: 'You can ascend: a full restart for Shards, which buy strong forever bonuses.' }
 ]
@@ -3495,8 +4225,8 @@ function tick() {
     lastTick = t
     if (dt < 0) dt = 0
     if (dt > 3) {
-      // the watch slept (screen off) — treat it like time away (not while paused)
-      if (!st.paused) awayFor(dt)
+      // the watch slept (screen off) — treat it like time away (not while paused or in Boss Rush)
+      if (!st.paused && !st.rush.active) awayFor(dt)
       dt = 0
     }
     checkTips()
@@ -3563,6 +4293,8 @@ function tick() {
         st.goalT = 0
         checkAchievements()
         updateDaily()
+        updateBounties()
+        updateLogin()
         st.stepT = (st.stepT || 0) + 1
         if (st.stepT >= 10) {
           st.stepT = 0
@@ -3575,7 +4307,7 @@ function tick() {
 
     if (st.shake > 0) {
       st.shake--
-      st.monsterDirty = true
+      if (!canMoveMonster) st.monsterDirty = true
     }
     if (st.flash > 0) {
       st.flash--
@@ -3587,14 +4319,11 @@ function tick() {
     if (st.bobT >= 0.5) {
       st.bobT = 0
       st.bob = !st.bob
-      st.monsterDirty = true
+      if (!canMoveMonster) st.monsterDirty = true
     }
     if (!menu.open && !st.paused) animateScene(Math.min(dt, 0.2))
-    // while the menu rows come in, the heavy redraw waits (the header was already
-    // drawn); if the reveal timer ever stalls, this shows everything as a backup
-    if (anim && now() - anim.start > ANIM_TOTAL_MS + 150) finishAnim()
     checkPress()
-    if (!anim) updateScreen()
+    updateScreen()
 
     // speed counter: average work per tick and real ticks per second
     perf.ticks++
@@ -3658,6 +4387,8 @@ Page({
       perf.start = lastTick
       if (loaded.last) awayFor((lastTick - loaded.last) / 1000)
       updateDaily()
+      updateBounties()
+      updateLogin()
       updateSteps()
 
       step = 'build screen'
@@ -3673,6 +4404,13 @@ Page({
       } catch (e) {
         console.log('TAP QUEST could not listen for swipes: ' + e)
       }
+      // the page never scrolls: without this, an up/down swipe in the menu made the
+      // whole screen bounce a few pixels
+      try {
+        setScrollLock({ lock: true })
+      } catch (e) {
+        console.log('TAP QUEST could not lock scrolling: ' + e)
+      }
 
       step = 'setInterval'
       timer = setInterval(tick, TICK_MS)
@@ -3684,7 +4422,6 @@ Page({
 
   onDestroy() {
     if (timer !== null) clearInterval(timer)
-    finishAnim()
     try {
       offGesture()
     } catch (e) {

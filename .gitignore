@@ -19,3 +19,9 @@ tools/preview/
 
 # private notes for Claude (contact details) - never publish
 HANDOFF-PRIVATE.md
+
+# Wristlings review images the tools write (zeus build rewrites Wristlings/.gitignore, so they live here)
+Wristlings/tools/sheet_named.png
+Wristlings/tools/widget_full.png
+Wristlings/tools/icon_preview.png
+Wristlings/tools/lines.png

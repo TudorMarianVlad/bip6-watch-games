@@ -64,7 +64,7 @@ function walk(dir) {
 walk(assetDir)
 
 // names the fake runtime below defines itself; anything else imported from @zos gets a stub
-const KNOWN = new Set(['createWidget', 'deleteWidget', 'widget', 'event', 'prop', 'align', 'text_style', 'setStatusBarVisible', 'getDeviceInfo', 'setPageBrightTime', 'resetPageBrightTime', 'onGesture', 'offGesture', 'GESTURE_UP', 'GESTURE_DOWN', 'GESTURE_LEFT', 'GESTURE_RIGHT', 'LocalStorage', 'Time', 'Step', 'Accelerometer', 'HeartRate', 'Vibrator', 'px'])
+const KNOWN = new Set(['createWidget', 'deleteWidget', 'widget', 'event', 'prop', 'align', 'text_style', 'setStatusBarVisible', 'getDeviceInfo', 'setPageBrightTime', 'resetPageBrightTime', 'onGesture', 'offGesture', 'GESTURE_UP', 'GESTURE_DOWN', 'GESTURE_LEFT', 'GESTURE_RIGHT', 'LocalStorage', 'Time', 'Step', 'Accelerometer', 'HeartRate', 'Battery', 'Vibrator', 'px'])
 const stubs = [...zosNames].filter((n) => !KNOWN.has(n)).map((n) => `const ${n} = __stub(${JSON.stringify(n)})`).join('\n')
 
 const runtime = String.raw`
@@ -168,6 +168,7 @@ function sensorClass(name, current) {
 const Step = sensorClass('Step', () => S.steps)
 const HeartRate = sensorClass('HeartRate', () => S.hr)
 const Accelerometer = sensorClass('Accelerometer', () => ({ x: S.tilt.x * 980, y: S.tilt.y * 980, z: 980 }))
+const Battery = sensorClass('Battery', () => 80) // a healthy battery (0 would mean "low" in Wristlings)
 class Vibrator { start() { flashVibe() } stop() {} setMode() {} getConfig() { return [] } }
 function __stub(name) {
   if (/^[A-Z0-9_]+$/.test(name)) return name // constants
