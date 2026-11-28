@@ -40,7 +40,7 @@
         "secondary-widget": {
           "widgets": [
             {
-              "path": "secondary-widget/index",
+              "path": "secondary-widget/team-widget",
               "icon": "icon.png",
               "preview": "widget-preview.png",
               "name": "Wristlings",

@@ -1,4 +1,4 @@
-// Wristlings widget: a page in the watch's widget list.
+// Wristlings team widget: a page in the watch's widget list.
 // Pure black background (AMOLED: black pixels are off), with the game's own art:
 // your team on their stands (the lead big in the middle, the other two smaller left
 // and right), the lead's HP, FOOD and JOY, what is waiting for you, and tiles for
@@ -126,6 +126,7 @@ function status(s) {
   const m = s.lead
   if (s.dream) return ['A dream visitor is waiting!', PURPLE]
   if (s.evolve) return [s.evolve + ' is ready to evolve!', GOLD]
+  if (s.eggReady) return ['Your egg is ready to hatch!', GOLD]
   if (s.resting && m.hp < 1 && !(s.mates || []).some((p) => p.hp >= 1)) return ['Your team is resting...', RED]
   if (m.full < s.hungryBelow) return [m.name + ' is hungry: feed it!', ORANGE]
   if (s.tracks >= s.cap) return ['Tracks full: time to explore!', GREEN]

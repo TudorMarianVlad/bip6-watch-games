@@ -92,7 +92,7 @@ chat so they match, and attach an image of one you like as a style reference.
 > 3-tone cel shading, light from top left, dark purple outline also between overlapping parts.
 > Centred, plain solid white background, no ground shadow, no text, no frame.
 
-Keep names generic in prompts: don't write "Pokémon" or name an existing creature. The art must be
+Keep names generic in prompts: don't name a creature from another game. The art must be
 original.
 
 ---
@@ -247,16 +247,16 @@ Format: **number. id (Name)**, element, how/when it appears, and what evolves in
 - **Change from Nibbat:** a much bigger wingspan, a tall slim body, a regal pose.
 - **Colours:** deep purple, a lilac fur ruff, red-pink eyes.
 
-### 25. moonmew (Moonmew): shadow, only at night → evolves into Lunacat (lv 16)
+### 25. moonmew (Moonkit): shadow, only at night → evolves into Lunacat (lv 16)
 - **Look:** a small **purple kitten** with a crescent moon mark on its forehead and a curled tail tip
   that glows like a tiny moon.
 - **Colours:** lavender-purple, a pale yellow moon mark, a white muzzle.
 - **Eyes:** large, slightly sleepy gold eyes.
 
-### 26. lunacat (Lunacat): shadow, evolved Moonmew, only at night
+### 26. lunacat (Lunacat): shadow, evolved Moonkit, only at night
 - **Look:** a sleek, tall **night panther**, its coat dotted with tiny stars like a night sky, with a
   crescent-moon halo above its head.
-- **Change from Moonmew:** a lean, long-legged big cat, keeping the moon mark and gaining the star pattern.
+- **Change from Moonkit:** a lean, long-legged big cat, keeping the moon mark and gaining the star pattern.
 - **Colours:** dark indigo with lighter violet edges, yellow stars and moon.
 - **Eyes:** glowing gold slits.
 

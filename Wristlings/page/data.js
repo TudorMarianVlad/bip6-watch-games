@@ -22,12 +22,12 @@ export const SHORT = { fire: 'FIRE', water: 'WATER', grass: 'GRASS', electric: '
 export const STRONG = {
   fire: ['grass', 'ice', 'shadow'],
   water: ['fire', 'earth'],
-  grass: ['water', 'earth'],
-  electric: ['water', 'air', 'shadow'],
-  ice: ['grass', 'air'],
-  earth: ['fire', 'electric'],
-  air: ['grass', 'earth'],
-  shadow: ['air', 'ice', 'light'],
+  grass: ['water', 'earth', 'electric'],
+  electric: ['water', 'air'],
+  ice: ['grass', 'air', 'earth'],
+  earth: ['fire', 'electric', 'light'],
+  air: ['grass', 'light'],
+  shadow: ['air', 'light'],
   light: ['shadow', 'ice']
 }
 
@@ -54,25 +54,25 @@ export function elementsOf(sp) {
 // status / chance: a hit may also cause a status ('burn', 'freeze', 'sleep'); a 'status' move only causes one
 // prio: moves with higher prio go first
 export const MOVES = {
-  tackle: { name: 'Tackle', el: null, pow: 40, acc: 100, kind: 'hit' },
+  tackle: { name: 'Bump', el: null, pow: 40, acc: 100, kind: 'hit' },
   guard: { name: 'Guard', el: null, pow: 0, acc: 100, kind: 'guard', prio: 1 },
-  rest: { name: 'Rest', el: null, pow: 0, acc: 100, kind: 'heal' },
+  rest: { name: 'Breather', el: null, pow: 0, acc: 100, kind: 'heal' },
 
-  ember: { name: 'Ember', el: 'fire', pow: 55, acc: 100, kind: 'hit', status: 'burn', chance: 0.1 },
+  ember: { name: 'Flicker', el: 'fire', pow: 55, acc: 100, kind: 'hit', status: 'burn', chance: 0.1 },
   flare: { name: 'Flare Dash', el: 'fire', pow: 85, acc: 85, kind: 'hit', status: 'burn', chance: 0.2 },
   splash: { name: 'Splash Jet', el: 'water', pow: 55, acc: 100, kind: 'hit' },
   tidal: { name: 'Tidal Crash', el: 'water', pow: 85, acc: 85, kind: 'hit' },
   leaf: { name: 'Leaf Toss', el: 'grass', pow: 55, acc: 100, kind: 'hit' },
   thorn: { name: 'Thorn Burst', el: 'grass', pow: 85, acc: 85, kind: 'hit' },
-  zap: { name: 'Zap', el: 'electric', pow: 55, acc: 100, kind: 'hit' },
+  zap: { name: 'Spark', el: 'electric', pow: 55, acc: 100, kind: 'hit' },
   arc: { name: 'Thunder Arc', el: 'electric', pow: 85, acc: 85, kind: 'hit' },
   frost: { name: 'Frost Bite', el: 'ice', pow: 55, acc: 100, kind: 'hit', status: 'freeze', chance: 0.1 },
-  howl: { name: 'Blizzard', el: 'ice', pow: 85, acc: 85, kind: 'hit', status: 'freeze', chance: 0.2 },
-  gust: { name: 'Gust', el: 'air', pow: 55, acc: 100, kind: 'hit' },
+  howl: { name: 'Ice Storm', el: 'ice', pow: 85, acc: 85, kind: 'hit', status: 'freeze', chance: 0.2 },
+  gust: { name: 'Breeze', el: 'air', pow: 55, acc: 100, kind: 'hit' },
   dive: { name: 'Sky Dive', el: 'air', pow: 85, acc: 85, kind: 'hit' },
   pebble: { name: 'Pebble Shot', el: 'earth', pow: 55, acc: 100, kind: 'hit' },
   quake: { name: 'Quake Slam', el: 'earth', pow: 85, acc: 85, kind: 'hit' },
-  hex: { name: 'Hex', el: 'shadow', pow: 55, acc: 100, kind: 'hit' },
+  hex: { name: 'Shade', el: 'shadow', pow: 55, acc: 100, kind: 'hit' },
   terror: { name: 'Night Terror', el: 'shadow', pow: 85, acc: 85, kind: 'hit' },
   glow: { name: 'Glow', el: 'light', pow: 55, acc: 100, kind: 'hit' },
   radiance: { name: 'Radiance', el: 'light', pow: 85, acc: 85, kind: 'hit' },
@@ -87,7 +87,7 @@ export const MOVES = {
   staticrain: { name: 'Static Rain', el: 'electric', pow: 60, acc: 100, kind: 'hit' },
   sunburst: { name: 'Sunburst', el: 'fire', pow: 60, acc: 100, kind: 'hit', status: 'burn', chance: 0.1 },
   mudroll: { name: 'Mud Roll', el: 'earth', pow: 60, acc: 100, kind: 'hit' },
-  // heal: how much of max HP a healing move restores (Rest uses the default)
+  // heal: how much of max HP a healing move restores (Breather uses the default)
   nap: { name: 'Long Nap', el: null, pow: 0, acc: 100, kind: 'heal', heal: 0.5 },
   // puts the foe to sleep
   lullaby: { name: 'Lullaby', el: 'air', pow: 0, acc: 75, kind: 'status', status: 'sleep' }
@@ -212,11 +212,11 @@ export const SPECIES = {
   snackoon: { name: 'Snackoon', el: 'earth', hp: 64, atk: 62, def: 60, spd: 72, berry: 'gold', cond: 'weekend', moves: learnset2('pebble', 'quake', 'rest', 'hex') },
   boolet: { name: 'Boolet', el: 'shadow', el2: 'air', hp: 52, atk: 66, def: 48, spd: 84, berry: 'blue', cond: 'halloween', moves: learnset2('hex', 'terror', 'guard', 'gust') },
   // round 3 rares (when: see RARES in index.js)
-  midnyx: { name: 'Midnyx', el: 'shadow', el2: 'ice', hp: 78, atk: 96, def: 70, spd: 92, berry: 'blue', rare: true, moves: [[1, 'hex'], [1, 'guard'], [1, 'terror'], [18, 'moonclaw']] },
-  pulsarex: { name: 'Pulsarex', el: 'fire', el2: 'electric', hp: 82, atk: 100, def: 70, spd: 86, berry: 'red', rare: true, moves: [[1, 'ember'], [1, 'zap'], [1, 'guard'], [1, 'flare'], [18, 'arc']] },
-  selenyx: { name: 'Selenyx', el: 'light', hp: 84, atk: 84, def: 86, spd: 80, berry: 'gold', rare: true, moves: [[1, 'glow'], [1, 'guard'], [1, 'lullaby'], [1, 'radiance'], [18, 'moonclaw']] },
-  lullamoth: { name: 'Lullamoth', el: 'air', hp: 76, atk: 72, def: 72, spd: 78, berry: 'gold', dream: true, rare: true,
-    moves: [[1, 'gust'], [1, 'hex'], [1, 'rest'], [8, 'lullaby'], [12, 'dive']] },
+  midnyx: { name: 'Midnyx', el: 'shadow', el2: 'ice', hp: 78, atk: 96, def: 70, spd: 92, berry: 'blue', rare: true, moves: [[1, 'hex'], [1, 'guard'], [16, 'terror'], [18, 'moonclaw']] },
+  pulsarex: { name: 'Pulsarex', el: 'fire', el2: 'electric', hp: 82, atk: 100, def: 70, spd: 86, berry: 'red', rare: true, moves: [[1, 'ember'], [1, 'zap'], [1, 'guard'], [16, 'flare'], [18, 'arc']] },
+  selenyx: { name: 'Selenyx', el: 'light', hp: 84, atk: 84, def: 86, spd: 80, berry: 'gold', rare: true, moves: [[1, 'glow'], [1, 'guard'], [12, 'lullaby'], [16, 'radiance'], [18, 'moonclaw']] },
+  lullamoth: { name: 'Lullamoth', el: 'air', hp: 62, atk: 56, def: 58, spd: 64, berry: 'gold', dream: true, rare: true,
+    moves: [[1, 'gust'], [1, 'hex'], [1, 'rest'], [14, 'lullaby'], [18, 'dive']] },
   shellby: { name: 'Shellby', el: 'water', hp: 50, atk: 46, def: 62, spd: 34, evo: 'reefling', evoLv: 16, berry: 'red', moves: learnset2('splash', 'tidal', 'guard', 'pinch') },
   reefling: { name: 'Reefling', el: 'water', hp: 67, atk: 68, def: 81, spd: 37, evo: 'coralclaw', evoLv: 28, berry: 'green', moves: learnset2('splash', 'tidal', 'guard', 'pinch') },
   coralclaw: { name: 'Coralclaw', el: 'water', el2: 'earth', hp: 84, atk: 90, def: 100, spd: 40, berry: 'gold', moves: learnset2('splash', 'tidal', 'guard', 'pinch') },
@@ -233,10 +233,10 @@ export const SPECIES = {
   terramble: { name: 'Terramble', el: 'earth', el2: 'grass', hp: 112, atk: 88, def: 116, spd: 30, berry: 'green', rare: true, legend: 'steps', moves: [[1, 'pebble'], [1, 'leaf'], [1, 'guard'], [1, 'quake'], [20, 'boulder']] },
   emberwing: { name: 'Emberwing', el: 'fire', el2: 'air', hp: 84, atk: 104, def: 74, spd: 102, berry: 'gold', rare: true, legend: 'streak', moves: [[1, 'ember'], [1, 'gust'], [1, 'rest'], [1, 'flare'], [20, 'dive']] },
   // rare: only between 11:00 and 14:00
-  solarion: { name: 'Solarion', el: 'fire', hp: 80, atk: 98, def: 72, spd: 88, berry: 'gold', rare: true, moves: [[1, 'ember'], [1, 'guard'], [1, 'flare'], [18, 'roar']] },
+  solarion: { name: 'Solarion', el: 'fire', hp: 80, atk: 98, def: 72, spd: 88, berry: 'gold', rare: true, moves: [[1, 'ember'], [1, 'guard'], [16, 'flare'], [18, 'roar']] },
   // rare: only after 10,000 steps in a day
-  boulderon: { name: 'Boulderon', el: 'earth', hp: 98, atk: 90, def: 106, spd: 34, berry: 'green', rare: true, moves: [[1, 'pebble'], [1, 'guard'], [1, 'quake'], [18, 'boulder']] },
-  moonmew: { name: 'Moonmew', el: 'shadow', hp: 44, atk: 52, def: 42, spd: 64, evo: 'crescat', evoLv: 16, berry: 'blue', time: 'night', moves: learnset2('hex', 'terror', 'guard', 'moonclaw') },
+  boulderon: { name: 'Boulderon', el: 'earth', hp: 98, atk: 90, def: 106, spd: 34, berry: 'green', rare: true, moves: [[1, 'pebble'], [1, 'guard'], [16, 'quake'], [18, 'boulder']] },
+  moonmew: { name: 'Moonkit', el: 'shadow', hp: 44, atk: 52, def: 42, spd: 64, evo: 'crescat', evoLv: 16, berry: 'blue', time: 'night', moves: learnset2('hex', 'terror', 'guard', 'moonclaw') },
   crescat: { name: 'Crescat', el: 'shadow', hp: 57, atk: 71, def: 52, spd: 82, evo: 'lunacat', evoLv: 28, berry: 'red', time: 'night', moves: learnset2('hex', 'terror', 'guard', 'moonclaw') },
   lunacat: { name: 'Lunacat', el: 'shadow', hp: 70, atk: 90, def: 62, spd: 100, berry: 'gold', time: 'night', moves: learnset2('hex', 'terror', 'guard', 'moonclaw') },
   slothnap: { name: 'Slothnap', el: 'grass', hp: 96, atk: 62, def: 90, spd: 20, berry: 'green', cond: 'weekend', moves: [[1, 'tackle'], [1, 'leaf'], [1, 'nap'], [14, 'thorn']] },

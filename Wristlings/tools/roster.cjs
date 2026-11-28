@@ -77,8 +77,8 @@ function howToMeet(id) {
   else if (id === 'midnyx') out.push('Rare: only between 23:00 and 01:00')
   else if (id === 'pulsarex') out.push('Rare: only after 30 high-heart-rate minutes in a day')
   else if (id === 'selenyx') out.push('Rare: only at night around a full moon')
-  else if (s.legend === 'steps') out.push('LEGEND (one per player): after 1,000,000 steps counted by the game')
-  else if (s.legend === 'streak') out.push('LEGEND (one per player): after a 7-day streak of 5,000+ steps; if it faints it is back tomorrow')
+  else if (s.legend === 'steps') out.push('LEGEND (one per player): after 500,000 steps counted by the game')
+  else if (s.legend === 'streak') out.push('LEGEND (one per player): after a 7-day streak of 5,000+ steps; if it is worn out it is back tomorrow')
   if (s.cond) out.push('Only while: ' + COND_TEXT[s.cond])
   if (s.time === 'night') out.push('Night only (20:00 - 06:00), 3x as likely then')
   if (PRE[id]) {

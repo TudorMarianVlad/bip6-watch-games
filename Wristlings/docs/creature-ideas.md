@@ -31,7 +31,7 @@ Battle twist: while it rains, Water moves could hit 10% harder, and Fire moves 1
 | Name | Element | Look | How you meet it |
 |---|---|---|---|
 | **Hushling** → **Serenewool** | Air | A tiny cloud sheep that dozes while floating | Only when your **stress is low** (calm reward) |
-| **Frazzlet** → **Overcharge** | Electric | A frizzy ball of static with spiky hair | Only when your **stress is high**. Its Rest is weak, but it hits hard |
+| **Frazzlet** → **Overcharge** | Electric | A frizzy ball of static with spiky hair | Only when your **stress is high**. Its Breather is weak, but it hits hard |
 | **Totemite** → **Totemaw** | Earth | A little stacked totem pole with a carved face | After you reach your **stand goal**. Gains a "head" for every 4 stand hours |
 | **Trekkit** → **Wanderhorn** | Grass | A fawn with leafy antlers that bloom over time | After **5 km** today. Evolves after walking **50 km in total** with it as your lead |
 

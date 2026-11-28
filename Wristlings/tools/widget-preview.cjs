@@ -1,5 +1,5 @@
 // Draws the widget's preview picture for the watch's widget picker by running the real
-// widget code (secondary-widget/index.js) with fake watch APIs and a sample save, so the
+// widget code (secondary-widget/team-widget.js) with fake watch APIs and a sample save, so the
 // preview always matches the widget. Text uses the game's 3D pixel font.
 // Writes assets/default.{s,r,b}/widget-preview.png and widget-preview_en-US.png at
 // 266 x 307 (the Bip 6 preview size; zeus build needs both names).
@@ -50,7 +50,7 @@ const fakes = {
   '@zos/sensor': { Step: class { getCurrent() { return STEPS } } }
 }
 let def = null
-let src = fs.readFileSync(ROOT + '/secondary-widget/index.js', 'utf8')
+let src = fs.readFileSync(ROOT + '/secondary-widget/team-widget.js', 'utf8')
 src = src.replace(/^import \{([^}]+)\} from '([^']+)'/gm, (m, names, mod) => 'const {' + names + "} = __fakes['" + mod + "']")
 new Function('__fakes', 'SecondaryWidget', src)(fakes, (d) => (def = d))
 def.build()

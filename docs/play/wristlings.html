@@ -271,12 +271,12 @@ const SHORT = { fire: 'FIRE', water: 'WATER', grass: 'GRASS', electric: 'ELEC', 
 const STRONG = {
   fire: ['grass', 'ice', 'shadow'],
   water: ['fire', 'earth'],
-  grass: ['water', 'earth'],
-  electric: ['water', 'air', 'shadow'],
-  ice: ['grass', 'air'],
-  earth: ['fire', 'electric'],
-  air: ['grass', 'earth'],
-  shadow: ['air', 'ice', 'light'],
+  grass: ['water', 'earth', 'electric'],
+  electric: ['water', 'air'],
+  ice: ['grass', 'air', 'earth'],
+  earth: ['fire', 'electric', 'light'],
+  air: ['grass', 'light'],
+  shadow: ['air', 'light'],
   light: ['shadow', 'ice']
 }
 
@@ -303,25 +303,25 @@ function elementsOf(sp) {
 // status / chance: a hit may also cause a status ('burn', 'freeze', 'sleep'); a 'status' move only causes one
 // prio: moves with higher prio go first
 const MOVES = {
-  tackle: { name: 'Tackle', el: null, pow: 40, acc: 100, kind: 'hit' },
+  tackle: { name: 'Bump', el: null, pow: 40, acc: 100, kind: 'hit' },
   guard: { name: 'Guard', el: null, pow: 0, acc: 100, kind: 'guard', prio: 1 },
-  rest: { name: 'Rest', el: null, pow: 0, acc: 100, kind: 'heal' },
+  rest: { name: 'Breather', el: null, pow: 0, acc: 100, kind: 'heal' },
 
-  ember: { name: 'Ember', el: 'fire', pow: 55, acc: 100, kind: 'hit', status: 'burn', chance: 0.1 },
+  ember: { name: 'Flicker', el: 'fire', pow: 55, acc: 100, kind: 'hit', status: 'burn', chance: 0.1 },
   flare: { name: 'Flare Dash', el: 'fire', pow: 85, acc: 85, kind: 'hit', status: 'burn', chance: 0.2 },
   splash: { name: 'Splash Jet', el: 'water', pow: 55, acc: 100, kind: 'hit' },
   tidal: { name: 'Tidal Crash', el: 'water', pow: 85, acc: 85, kind: 'hit' },
   leaf: { name: 'Leaf Toss', el: 'grass', pow: 55, acc: 100, kind: 'hit' },
   thorn: { name: 'Thorn Burst', el: 'grass', pow: 85, acc: 85, kind: 'hit' },
-  zap: { name: 'Zap', el: 'electric', pow: 55, acc: 100, kind: 'hit' },
+  zap: { name: 'Spark', el: 'electric', pow: 55, acc: 100, kind: 'hit' },
   arc: { name: 'Thunder Arc', el: 'electric', pow: 85, acc: 85, kind: 'hit' },
   frost: { name: 'Frost Bite', el: 'ice', pow: 55, acc: 100, kind: 'hit', status: 'freeze', chance: 0.1 },
-  howl: { name: 'Blizzard', el: 'ice', pow: 85, acc: 85, kind: 'hit', status: 'freeze', chance: 0.2 },
-  gust: { name: 'Gust', el: 'air', pow: 55, acc: 100, kind: 'hit' },
+  howl: { name: 'Ice Storm', el: 'ice', pow: 85, acc: 85, kind: 'hit', status: 'freeze', chance: 0.2 },
+  gust: { name: 'Breeze', el: 'air', pow: 55, acc: 100, kind: 'hit' },
   dive: { name: 'Sky Dive', el: 'air', pow: 85, acc: 85, kind: 'hit' },
   pebble: { name: 'Pebble Shot', el: 'earth', pow: 55, acc: 100, kind: 'hit' },
   quake: { name: 'Quake Slam', el: 'earth', pow: 85, acc: 85, kind: 'hit' },
-  hex: { name: 'Hex', el: 'shadow', pow: 55, acc: 100, kind: 'hit' },
+  hex: { name: 'Shade', el: 'shadow', pow: 55, acc: 100, kind: 'hit' },
   terror: { name: 'Night Terror', el: 'shadow', pow: 85, acc: 85, kind: 'hit' },
   glow: { name: 'Glow', el: 'light', pow: 55, acc: 100, kind: 'hit' },
   radiance: { name: 'Radiance', el: 'light', pow: 85, acc: 85, kind: 'hit' },
@@ -336,7 +336,7 @@ const MOVES = {
   staticrain: { name: 'Static Rain', el: 'electric', pow: 60, acc: 100, kind: 'hit' },
   sunburst: { name: 'Sunburst', el: 'fire', pow: 60, acc: 100, kind: 'hit', status: 'burn', chance: 0.1 },
   mudroll: { name: 'Mud Roll', el: 'earth', pow: 60, acc: 100, kind: 'hit' },
-  // heal: how much of max HP a healing move restores (Rest uses the default)
+  // heal: how much of max HP a healing move restores (Breather uses the default)
   nap: { name: 'Long Nap', el: null, pow: 0, acc: 100, kind: 'heal', heal: 0.5 },
   // puts the foe to sleep
   lullaby: { name: 'Lullaby', el: 'air', pow: 0, acc: 75, kind: 'status', status: 'sleep' }
@@ -461,11 +461,11 @@ const SPECIES = {
   snackoon: { name: 'Snackoon', el: 'earth', hp: 64, atk: 62, def: 60, spd: 72, berry: 'gold', cond: 'weekend', moves: learnset2('pebble', 'quake', 'rest', 'hex') },
   boolet: { name: 'Boolet', el: 'shadow', el2: 'air', hp: 52, atk: 66, def: 48, spd: 84, berry: 'blue', cond: 'halloween', moves: learnset2('hex', 'terror', 'guard', 'gust') },
   // round 3 rares (when: see RARES in index.js)
-  midnyx: { name: 'Midnyx', el: 'shadow', el2: 'ice', hp: 78, atk: 96, def: 70, spd: 92, berry: 'blue', rare: true, moves: [[1, 'hex'], [1, 'guard'], [1, 'terror'], [18, 'moonclaw']] },
-  pulsarex: { name: 'Pulsarex', el: 'fire', el2: 'electric', hp: 82, atk: 100, def: 70, spd: 86, berry: 'red', rare: true, moves: [[1, 'ember'], [1, 'zap'], [1, 'guard'], [1, 'flare'], [18, 'arc']] },
-  selenyx: { name: 'Selenyx', el: 'light', hp: 84, atk: 84, def: 86, spd: 80, berry: 'gold', rare: true, moves: [[1, 'glow'], [1, 'guard'], [1, 'lullaby'], [1, 'radiance'], [18, 'moonclaw']] },
-  lullamoth: { name: 'Lullamoth', el: 'air', hp: 76, atk: 72, def: 72, spd: 78, berry: 'gold', dream: true, rare: true,
-    moves: [[1, 'gust'], [1, 'hex'], [1, 'rest'], [8, 'lullaby'], [12, 'dive']] },
+  midnyx: { name: 'Midnyx', el: 'shadow', el2: 'ice', hp: 78, atk: 96, def: 70, spd: 92, berry: 'blue', rare: true, moves: [[1, 'hex'], [1, 'guard'], [16, 'terror'], [18, 'moonclaw']] },
+  pulsarex: { name: 'Pulsarex', el: 'fire', el2: 'electric', hp: 82, atk: 100, def: 70, spd: 86, berry: 'red', rare: true, moves: [[1, 'ember'], [1, 'zap'], [1, 'guard'], [16, 'flare'], [18, 'arc']] },
+  selenyx: { name: 'Selenyx', el: 'light', hp: 84, atk: 84, def: 86, spd: 80, berry: 'gold', rare: true, moves: [[1, 'glow'], [1, 'guard'], [12, 'lullaby'], [16, 'radiance'], [18, 'moonclaw']] },
+  lullamoth: { name: 'Lullamoth', el: 'air', hp: 62, atk: 56, def: 58, spd: 64, berry: 'gold', dream: true, rare: true,
+    moves: [[1, 'gust'], [1, 'hex'], [1, 'rest'], [14, 'lullaby'], [18, 'dive']] },
   shellby: { name: 'Shellby', el: 'water', hp: 50, atk: 46, def: 62, spd: 34, evo: 'reefling', evoLv: 16, berry: 'red', moves: learnset2('splash', 'tidal', 'guard', 'pinch') },
   reefling: { name: 'Reefling', el: 'water', hp: 67, atk: 68, def: 81, spd: 37, evo: 'coralclaw', evoLv: 28, berry: 'green', moves: learnset2('splash', 'tidal', 'guard', 'pinch') },
   coralclaw: { name: 'Coralclaw', el: 'water', el2: 'earth', hp: 84, atk: 90, def: 100, spd: 40, berry: 'gold', moves: learnset2('splash', 'tidal', 'guard', 'pinch') },
@@ -482,10 +482,10 @@ const SPECIES = {
   terramble: { name: 'Terramble', el: 'earth', el2: 'grass', hp: 112, atk: 88, def: 116, spd: 30, berry: 'green', rare: true, legend: 'steps', moves: [[1, 'pebble'], [1, 'leaf'], [1, 'guard'], [1, 'quake'], [20, 'boulder']] },
   emberwing: { name: 'Emberwing', el: 'fire', el2: 'air', hp: 84, atk: 104, def: 74, spd: 102, berry: 'gold', rare: true, legend: 'streak', moves: [[1, 'ember'], [1, 'gust'], [1, 'rest'], [1, 'flare'], [20, 'dive']] },
   // rare: only between 11:00 and 14:00
-  solarion: { name: 'Solarion', el: 'fire', hp: 80, atk: 98, def: 72, spd: 88, berry: 'gold', rare: true, moves: [[1, 'ember'], [1, 'guard'], [1, 'flare'], [18, 'roar']] },
+  solarion: { name: 'Solarion', el: 'fire', hp: 80, atk: 98, def: 72, spd: 88, berry: 'gold', rare: true, moves: [[1, 'ember'], [1, 'guard'], [16, 'flare'], [18, 'roar']] },
   // rare: only after 10,000 steps in a day
-  boulderon: { name: 'Boulderon', el: 'earth', hp: 98, atk: 90, def: 106, spd: 34, berry: 'green', rare: true, moves: [[1, 'pebble'], [1, 'guard'], [1, 'quake'], [18, 'boulder']] },
-  moonmew: { name: 'Moonmew', el: 'shadow', hp: 44, atk: 52, def: 42, spd: 64, evo: 'crescat', evoLv: 16, berry: 'blue', time: 'night', moves: learnset2('hex', 'terror', 'guard', 'moonclaw') },
+  boulderon: { name: 'Boulderon', el: 'earth', hp: 98, atk: 90, def: 106, spd: 34, berry: 'green', rare: true, moves: [[1, 'pebble'], [1, 'guard'], [16, 'quake'], [18, 'boulder']] },
+  moonmew: { name: 'Moonkit', el: 'shadow', hp: 44, atk: 52, def: 42, spd: 64, evo: 'crescat', evoLv: 16, berry: 'blue', time: 'night', moves: learnset2('hex', 'terror', 'guard', 'moonclaw') },
   crescat: { name: 'Crescat', el: 'shadow', hp: 57, atk: 71, def: 52, spd: 82, evo: 'lunacat', evoLv: 28, berry: 'red', time: 'night', moves: learnset2('hex', 'terror', 'guard', 'moonclaw') },
   lunacat: { name: 'Lunacat', el: 'shadow', hp: 70, atk: 90, def: 62, spd: 100, berry: 'gold', time: 'night', moves: learnset2('hex', 'terror', 'guard', 'moonclaw') },
   slothnap: { name: 'Slothnap', el: 'grass', hp: 96, atk: 62, def: 90, spd: 20, berry: 'green', cond: 'weekend', moves: [[1, 'tackle'], [1, 'leaf'], [1, 'nap'], [14, 'thorn']] },
@@ -565,6 +565,7 @@ const FAV_JOY_BONUS = 12
 const TICK_MS = 50
 const SLIDE_MS = 230 // menu transition: quick enough to stay snappy
 const SLIDE_NAMES = { den: 1, guide: 1, settings: 1, team: 1, detail: 1, feed: 1, book: 1, boss: 1 }
+const READ_ONLY_SCREENS = { guide: 1, book: 1, boss: 1, team: 1, detail: 1 }
 const STEPS_PER_TRACK = 300
 const TRACK_CAP = 6
 const FREE_TRACK_MIN = 120 // a free track every 2 hours, so you can play without walking
@@ -585,9 +586,9 @@ const GOOD_SLEEP_MIN = 360 // a night this long (minutes) fully heals the team
 const WILD_EVOLVED_LV = 13 // evolved forms show up wild once your lead is this level
 const WILD_FINAL_LV = 28 // ...and fully evolved ones (the third stage) once it is this level
 const WILD_EVOLVED_CHANCE = 0.18 // ...and then this often
-const AI_REST_BELOW = 0.35 // wild ones that know Rest use it below this much HP
+const AI_REST_BELOW = 0.35 // wild ones that know Breather use it below this much HP
 const EVOLVE_JOY = 55
-const HP_REGEN_PER_MIN = 0.03 // 3% of max HP per minute outside battle
+const HP_REGEN_PER_MIN = 0.003 // 0.3% of max HP per minute outside battle (~5.5h for a full heal)
 const RESTS_PER_BATTLE = 2
 const CRIT_CHANCE = 1 / 16
 const CRIT_MULT = 1.5
@@ -610,12 +611,12 @@ const CATCH_OVERLEVEL_PENALTY = 0.1
 const SAVE_EVERY_MS = 10000
 const RESET_CONFIRM_MS = 3000 // Settings > RESET: tap again within this to erase the game
 // rare Wristlings
-const RARE_NOON_CHANCE = 0.03 // Solarion: only between 11:00 and 14:00
+const RARE_NOON_CHANCE = 0.08 // Solarion: only between 11:00 and 14:00 (was 0.03)
 const RARE_WALK_STEPS = 10000 // Boulderon: only once you walked this much today
 const RARE_WALK_CHANCE = 0.3 // high: a 10,000-step day is rare enough
 const RARE_MIDNIGHT_CHANCE = 0.1 // Midnyx: only from 23:00 to 01:00
 const RARE_ACTIVE_MIN = 30 // Pulsarex: only after this many high-heart-rate minutes today
-const RARE_ACTIVE_CHANCE = 0.03
+const RARE_ACTIVE_CHANCE = 0.08 // was 0.03
 const RARE_MOON_CHANCE = 0.3 // Selenyx: only on full-moon nights
 const FULL_MOON_DAYS = 1.5 // days either side of the exact full moon that still count
 // step eggs: you find one on a good walking day, and it hatches as you walk
@@ -757,7 +758,7 @@ function xpNext(lv) {
 //   1. main attack: the strongest move of its own element
 //   2. second attack: a move of another element if it knows one (to cover a
 //      weakness), otherwise its next strongest attack
-//   3. GUARD or REST
+//   3. GUARD or BREATHER
 // Weaker moves it has outgrown are left out.
 function movesOf(m) {
   const s = SPECIES[m.sp]
@@ -843,8 +844,11 @@ function passTime(ms, noHeal) {
   if (ms <= 0) return
   const h = ms / 3600000
   for (const m of st.mons) {
-    m.full = clamp(m.full - FULL_DECAY_PER_HOUR * h, 0, 100)
-    if (m.full < HUNGRY_BELOW) m.joy = clamp(m.joy - 2 * h, 0, 100)
+    if (st.party.indexOf(m.id) >= 0) {
+      m.full = clamp(m.full - FULL_DECAY_PER_HOUR * h, 0, 100)
+      if (m.full < HUNGRY_BELOW) m.joy = clamp(m.joy - 2 * h, 0, 100)
+    }
+    // benched creatures still heal; only party members get hungry
     if (!noHeal) m.hp = clamp(m.hp + maxHp(m) * HP_REGEN_PER_MIN * h * 60, 0, maxHp(m))
   }
   // free tracks
@@ -880,7 +884,7 @@ function freshState() {
     pendingEvo: [],
     life: { steps: 0, day: 0, last: 0 }, // steps counted by the game (legend)
     streak: { day: 0, count: 0 }, // days in a row with STREAK_STEPS+ steps (legend)
-    legendRest: 0, // the day a streak legend fainted: it comes back the next day
+    legendRest: 0, // the day a streak legend was worn out: it comes back the next day
     egg: null, // the egg you carry: { steps } walked with it
     eggDay: 0, // the last day an egg was found by walking
     eggsWaiting: 0, // eggs won while carrying one: they start after it hatches
@@ -908,7 +912,7 @@ function save() {
   }
 }
 
-// A short summary for the watch widget (secondary-widget/index.js). It carries the
+// A short summary for the watch widget (secondary-widget/team-widget.js). It carries the
 // rates too, so the widget can move hunger, healing and tracks on while the game is
 // closed without knowing the game's formulas. load() ignores it.
 function widgetSummary() {
@@ -933,6 +937,7 @@ function widgetSummary() {
     caught: Object.keys(st.caught).length,
     total: BOOK.length,
     dream: !!st.dream,
+    eggReady: !!(st.egg && st.egg.steps >= EGG_HATCH_STEPS),
     evolve: evo ? SPECIES[evo.sp].name : '',
     fullPerHour: FULL_DECAY_PER_HOUR,
     hungryBelow: HUNGRY_BELOW,
@@ -1119,7 +1124,7 @@ const VALENTINE = [[2, 12], [2, 16]] // 12 - 16 Feb
 const MIDSUMMER = [[6, 19], [6, 25]] // 19 - 25 Jun (and only at night)
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 // legends (one per player)
-const LEGEND_STEPS = 1000000 // one appears once the game has counted this many of your steps
+const LEGEND_STEPS = 500000 // one appears once the game has counted this many of your steps (was 1,000,000)
 const STREAK_DAYS = 7 // one appears after this many days in a row with...
 const STREAK_STEPS = 5000 // ...at least this many steps
 const LEGEND_CHANCE = 0.15 // then this often per EXPLORE
@@ -1127,7 +1132,7 @@ const LEGEND_CHANCE = 0.15 // then this often per EXPLORE
 const BURN_DMG = 0.08 // a burned creature loses this much of its max HP after each of its moves
 const BURN_TURNS = 4
 const FREEZE_TURNS = 1 // a frozen creature skips this many turns
-const SLEEP_TURNS = [1, 3] // a sleeping one skips 1 to 3 turns
+const SLEEP_TURNS = [1, 2] // a sleeping one skips 1 to 2 turns (was 1 to 3)
 const WEATHER_BOOST = 1.2
 const WEATHER_DAMPEN = 0.8
 const WEATHER = {
@@ -1648,7 +1653,7 @@ function buildScreen(name, arg, offset, axis) {
     if (axis === 'y') moveLayer(screen, 0, offset)
     else moveLayer(screen, offset, 0)
   }
-  save()
+  if (!READ_ONLY_SCREENS[name]) save()
 }
 
 function goto(name, arg, dir, axis) {
@@ -1899,7 +1904,7 @@ function updateDen() {
 
 // ---------- den: the lead breathes ----------
 // A slow up-and-down bob (the shadow narrows as it rises). Happy ones bob a bit
-// quicker, hungry ones slow and low, a fainted one rests. Tapping it makes it hop.
+// quicker, hungry ones slow and low, a worn-out one rests. Tapping it makes it hop.
 // Only moves the picture when a whole pixel changes, so it costs almost nothing.
 const DEN_MON_Y = 62
 const BOB_PX = 3 // how high it rises
@@ -1943,7 +1948,7 @@ function explore() {
   if (!party.some((p) => p.hp >= 1)) return toast('Your team needs rest first', RED)
   if (st.dream) {
     st.dream = false
-    const lv = clamp(leadMon().lv + 2, 3, MAX_LV)
+    const lv = clamp(leadMon().lv - 1, 3, MAX_LV)
     return startBattle(enemyMon('lullamoth', lv), true)
   }
   if (st.tracks <= 0) {
@@ -1960,9 +1965,15 @@ function rollWild() {
   const h = hourOf(now())
   // legends (one per player), then the rare ones (see RARE_* in the balance section)
   const legend = legendReady()
-  if (legend && Math.random() < LEGEND_CHANCE) return enemyMon(legend, clamp(lead.lv + 3, 10, MAX_LV))
-  for (const r of RARES) if (r.when() && Math.random() < r.chance) return enemyMon(r.id, clamp(lead.lv + 2, 8, MAX_LV))
-  const ok = (id) => !SPECIES[id].rare && (night || SPECIES[id].time !== 'night') && (!SPECIES[id].cond || condMet(SPECIES[id].cond))
+  if (legend && Math.random() < LEGEND_CHANCE) return enemyMon(legend, clamp(lead.lv + 1, 10, MAX_LV))
+  for (const r of RARES) if (r.when() && Math.random() < r.chance) return enemyMon(r.id, clamp(lead.lv, 6, MAX_LV))
+  const ok = (id) => {
+    const s = SPECIES[id]
+    if (s.rare || (!night && s.time === 'night') || (s.cond && !condMet(s.cond))) return false
+    // keep strong single-stage species out of early-game fights
+    if (!PRE[id] && !s.evo && lead.lv < 10 && s.hp + s.atk + s.def >= 180) return false
+    return true
+  }
   const base = BOOK.filter((id) => ok(id) && !PRE[id])
   const evolved = BOOK.filter((id) => ok(id) && PRE[id] && (!PRE[PRE[id]] || lead.lv >= WILD_FINAL_LV))
   let sp
@@ -2187,6 +2198,11 @@ function train() {
   st.train.used += tm
   m.joy = clamp(m.joy + 5, 0, 100)
   const msgs = gainXp(m, xp)
+  for (const p of partyMons()) {
+    if (p === m) continue
+    p.joy = clamp(p.joy + 2, 0, 100)
+    msgs.push(...gainXp(p, Math.floor(xp / 2)).filter((x) => x.indexOf(' XP') < 0))
+  }
   notices.push({ title: 'TRAINING', text: used + ' active minutes today' + (tm > used ? ' (' + TRAIN_XP_CAP_MIN + ' max)' : '') + '!\n' + msgs.join('\n'), img: 'mon/' + m.sp + '.png' })
   buzz('mid', 'other')
   home()
@@ -2232,7 +2248,7 @@ function startBattle(enemy, dream) {
   B.shown.e = B.target.e = enemy.hp
   B.shown.p = B.target.p = activeMon().hp
   st.seen[enemy.sp] = true
-  say(enemy.boss ? 'BOSS ' + SPECIES[enemy.sp].name + ' steps up!' : (dream ? 'A dreamy ' : 'A wild ') + SPECIES[enemy.sp].name + ' appeared!', null, 750)
+  say(enemy.boss ? 'BOSS ' + SPECIES[enemy.sp].name + ' steps up!' : (dream ? 'A dreamy ' : 'A wild ') + SPECIES[enemy.sp].name + (dream ? ' drifted in!' : ' wandered in!'), null, 750)
   if (B.weather) say(weatherLine(B.weather), null, 1000)
   // a compass creature points somewhere: face it, or it may get away
   B.needle = SPECIES[enemy.sp].cond === 'compass' ? randInt(0, 7) * 45 : null
@@ -2282,7 +2298,7 @@ function applyStatus(side, m, kind) {
   const who = (side === 'e' ? 'Wild ' : '') + SPECIES[m.sp].name
   say(who + STATUS[kind].got, () => popText(side, STATUS[kind].label, STATUS[kind].color), 800)
 }
-// a burned creature loses HP after it moves. Returns false when it fainted.
+// a burned creature loses HP after it moves. Returns false when it was worn out.
 function burnTick(side) {
   const me = side === 'p' ? activeMon() : B.enemy
   const b = B.status[side]
@@ -2669,7 +2685,7 @@ function tickBattle(t) {
 function aiMove(e, foe) {
   const mvs = movesOf(e)
   const mx = maxHp(e)
-  // healing moves have different IDs (Rest, Long Nap): match by kind
+  // healing moves have different IDs (Breather, Long Nap): match by kind
   const healMv = mvs.find((id) => MOVES[id].kind === 'heal')
   if (healMv && e.hp < mx * AI_REST_BELOW && B.rests.e < RESTS_PER_BATTLE && Math.random() < 0.6) return healMv
   if (mvs.indexOf('guard') >= 0 && Math.random() < 0.12) return 'guard'
@@ -2744,7 +2760,7 @@ function needleTurn() {
   say(name + ' now points ' + DIR_WORDS[dirIndex(next)] + '!', null, 1000)
 }
 
-// one creature uses one move, then a burn may hurt it. Returns false when someone fainted.
+// one creature uses one move, then a burn may hurt it. Returns false when someone was worn out.
 function doMove(side, mvId) {
   return doMoveOnly(side, mvId) && burnTick(side)
 }
@@ -2769,14 +2785,14 @@ function doMoveOnly(side, mvId) {
     return true
   }
   if (mv.kind === 'status') {
-    say(who + ' used ' + mv.name + '!', () => (B.fx[side].lunge = now()))
+    say(who + ' chose ' + mv.name + '!', () => (B.fx[side].lunge = now()))
     if (Math.random() * 100 >= mv.acc || !canGetStatus(foe, mv.status, other)) say('...but nothing happened.', null, 650)
     else applyStatus(other, foe, mv.status)
     return true
   }
   if (mv.kind === 'guard') {
     B.guard[side] = true
-    say(who + ' used Guard!', () => popText(side, 'GUARD', BLUE))
+    say(who + ' chose Guard!', () => popText(side, 'GUARD', BLUE))
     return true
   }
   if (mv.kind === 'heal') {
@@ -2789,7 +2805,7 @@ function doMoveOnly(side, mvId) {
     const before = me.hp
     me.hp = Math.min(mx, me.hp + Math.ceil(mx * (mv.heal || REST_HEAL)))
     const v = me.hp
-    say(who + ' used ' + mv.name + '!')
+    say(who + ' chose ' + mv.name + '!')
     say(who + ' feels better', () => {
       B.target[side] = v
       popText(side, '+' + Math.round(v - before), GREEN)
@@ -2797,7 +2813,7 @@ function doMoveOnly(side, mvId) {
     return true
   }
   if (Math.random() * 100 >= mv.acc) {
-    say(who + ' used ' + mv.name + '!', () => {
+    say(who + ' chose ' + mv.name + '!', () => {
       B.fx[side].lunge = now()
       later(HIT_DELAY_MS, () => popText(other, 'MISS', DIM))
     })
@@ -2817,7 +2833,7 @@ function doMoveOnly(side, mvId) {
   foe.hp = Math.max(0, foe.hp - dmg)
   const v = foe.hp
   const big = eff > 1 || crit > 1
-  say(who + ' used ' + mv.name + '!', () => {
+  say(who + ' chose ' + mv.name + '!', () => {
     // the attacker lunges; the hit lands a moment later
     B.fx[side].lunge = now()
     later(HIT_DELAY_MS, () => {
@@ -2849,7 +2865,7 @@ function doMoveOnly(side, mvId) {
 function enemyFainted() {
   const e = B.enemy
   B.over = true
-  say((e.boss ? 'The boss ' : 'Wild ') + SPECIES[e.sp].name + (e.boss ? ' is beaten!' : ' fainted!'), () => {
+  say((e.boss ? 'The boss ' : 'Wild ') + SPECIES[e.sp].name + (e.boss ? ' is beaten!' : ' is worn out!'), () => {
     B.fx.e.drop = now()
     buzz('mid', 'battle')
   })
@@ -2870,7 +2886,7 @@ function enemyFainted() {
   const p = activeMon()
   p.joy = clamp(p.joy + 3, 0, 100)
   const msgs = gainXp(p, xp)
-  for (const m of partyMons()) if (m !== p && m.hp >= 1) msgs.push(...gainXp(m, Math.floor(xp / 3)).filter((x) => x.indexOf(' XP') < 0))
+  for (const m of partyMons()) if (m !== p && m.hp >= 1) msgs.push(...gainXp(m, Math.floor(xp / 2)).filter((x) => x.indexOf(' XP') < 0))
   for (const msg of msgs) say(msg, null, 750)
   if (Math.random() < BERRY_DROP) {
     const b = Math.random() < 0.15 ? 'gold' : pick(['red', 'blue', 'green'])
@@ -2895,7 +2911,7 @@ function sendIn(idx, hp) {
 
 function playerFainted() {
   const m = activeMon()
-  say(SPECIES[m.sp].name + ' fainted!', () => {
+  say(SPECIES[m.sp].name + ' is worn out!', () => {
     B.fx.p.drop = now()
     buzz('strong', 'battle')
   })
@@ -2935,6 +2951,13 @@ const COUNT_STEP_MS = 600 // each beat of the 3-2-1 countdown
 const GO_SHOW_MS = 450 // how long GO! stays up once the ring moves
 const CATCH_CY = 196
 
+function catchChance(e, bonus) {
+  const frac = e.hp / maxHp(e)
+  let chance = (CATCH_BASE + (1 - frac) * CATCH_HP + bonus) * RARITY[rarityOf(e.sp)].mult
+  if (e.lv > leadMon().lv + CATCH_OVERLEVEL) chance -= CATCH_OVERLEVEL_PENALTY
+  return clamp(chance, 0.05, CATCH_MAX)
+}
+
 function buildCatch() {
   const u = screen.ui
   const e = B.enemy
@@ -2967,6 +2990,9 @@ function buildCatch() {
   })
   const frac = e.hp / maxHp(e)
   u.info = mkTextS(20, 368, W - 40, 30, 18, LILAC, align.CENTER_H, 'HP ' + Math.round(frac * 100) + '%   charms left ' + st.charms)
+  const lo = pct(catchChance(e, 0))
+  const hi = pct(catchChance(e, CATCH_PERFECT))
+  mkTextS(20, 400, W - 40, 26, 16, GOLD, align.CENTER_H, 'Odds: ' + (lo === hi ? hi : lo + ' - ' + hi))
   screen.instant = true
   addTap(0, 0, W, H, catchTap)
 }
@@ -2981,11 +3007,7 @@ function catchTap() {
   const d = Math.abs(CATCH.r - RING_TARGET)
   CATCH.rating = d <= PERFECT_PX ? 'perfect' : d <= GOOD_PX ? 'good' : 'miss'
   const bonus = d <= PERFECT_PX ? CATCH_PERFECT : d <= GOOD_PX ? CATCH_GOOD : 0
-  const e = B.enemy
-  const frac = e.hp / maxHp(e)
-  let chance = (CATCH_BASE + (1 - frac) * CATCH_HP + bonus) * RARITY[rarityOf(e.sp)].mult
-  if (e.lv > leadMon().lv + CATCH_OVERLEVEL) chance -= CATCH_OVERLEVEL_PENALTY
-  CATCH.ok = Math.random() < clamp(chance, 0.05, CATCH_MAX)
+  CATCH.ok = Math.random() < catchChance(B.enemy, bonus)
   CATCH.phase = 'wobble'
   CATCH.wob = 0
   CATCH.next = now() + 500
@@ -3079,7 +3101,13 @@ function caught() {
     where = 'It joined your party!'
   }
   const p = activeMon()
-  const msgs = gainXp(p, Math.round((8 + e.lv * 6) / 2))
+  const xp = Math.round((8 + e.lv * 6) / 2)
+  const msgs = gainXp(p, xp)
+  for (const mate of partyMons()) {
+    if (mate !== p && mate !== m && mate.hp >= 1) {
+      msgs.push(...gainXp(mate, Math.floor(xp / 2)).filter((x) => x.indexOf(' XP') < 0))
+    }
+  }
   notices.push({
     title: (first ? 'NEW! ' : '') + SPECIES[e.sp].name,
     text: where + (first ? ' New entry in your book.' : '') + '\n' + msgs.join('\n'),
@@ -3165,6 +3193,8 @@ function buildTeam(page) {
   const list = teamOrder()
   const pages = Math.max(1, Math.ceil(list.length / 3))
   page = clamp(page || 0, 0, pages - 1)
+  screen.page = page
+  screen.pages = pages
   mkArtC(2, 't_team')
   mkText(40, 46, W - 80, 20, 15, LILAC, align.CENTER_H, list.length + (list.length === 1 ? ' Wristling' : ' Wristlings'))
   list.slice(page * 3, page * 3 + 3).forEach((m, i) => {
@@ -3191,12 +3221,37 @@ function buildTeam(page) {
 }
 
 function buildDetail(arg) {
+  const u = screen.ui
   const m = monById(arg.id)
   const s = SPECIES[m.sp]
   const st2 = statsOf(m)
   const el = ELEMENTS[s.el]
   mkArt(CX - 70, 8, 'plate140')
   mkImg(CX - 64, 12, 'mon/' + m.sp + '.png')
+  // 2-tap RELEASE button in the top-right corner
+  u.relBg = mkRect(282, 16, 92, 34, 0x3a1828, 10)
+  u.relTxt = mkText(282, 16, 92, 34, 15, RED, align.CENTER_H, 'RELEASE')
+  u.relUntil = 0
+  addTap(282, 16, 92, 34, () => {
+    if (st.mons.length <= 1) return toast('Keep at least one Wristling', GOLD)
+    if (st.party.length <= 1 && st.party[0] === m.id) return toast('Put another in PARTY first', GOLD)
+    const t = now()
+    if (!u.relUntil || t > u.relUntil) {
+      u.relUntil = t + RESET_CONFIRM_MS
+      setRect(u.relBg, { color: RED })
+      setText(u.relTxt, 'SURE?')
+      setTextColor(u.relTxt, WHITE)
+      return
+    }
+    st.party = st.party.filter((x) => x !== m.id)
+    st.pendingEvo = st.pendingEvo.filter((x) => x !== m.id)
+    st.mons = st.mons.filter((x) => x.id !== m.id)
+    const bId = s.berry
+    st.berries[bId]++
+    save()
+    gotoBack('team', arg.page)
+    toast('Released ' + s.name + ' (+1 ' + BERRIES.find((b) => b.id === bId).name + ')', GOLD)
+  })
   mkTextS(30, 148, W - 60, 34, 28, WHITE, align.CENTER_H, s.name + '  Lv ' + m.lv)
   const fav = st.favKnown[m.sp] ? 'loves ' + BERRIES.find((b) => b.id === s.berry).name : 'favourite berry: ?'
   mkText(30, 180, W - 60, 24, 17, el.color, align.CENTER_H, el.name + '   ' + fav)
@@ -3209,7 +3264,7 @@ function buildDetail(arg) {
   row(230, 'XP', m.lv >= MAX_LV ? 1 : m.xp / xpNext(m.lv), BLUE, m.lv >= MAX_LV ? 'MAX' : Math.floor((m.xp / xpNext(m.lv)) * 100) + '%')
   row(248, 'FOOD', m.full / 100, ORANGE, Math.round(m.full) + '')
   row(266, 'JOY', m.joy / 100, PINK, Math.round(m.joy) + '')
-  mkText(24, 276, W - 48, 22, 16, WHITE, align.CENTER_H, 'ATK ' + st2.atk + '   DEF ' + st2.def + '   SPD ' + st2.spd + (s.evo ? '   evolves Lv ' + s.evoLv + (s.evoPai ? ' + ' + s.evoPai + ' PAI' : '') : ''))
+  mkText(24, 276, W - 48, 22, 16, WHITE, align.CENTER_H, 'ATK ' + st2.atk + '   DEF ' + st2.def + '   SPD ' + st2.spd + (s.evo ? '   evolves Lv ' + s.evoLv + (s.evoPai ? ' + ' + s.evoPai + ' PAI' : '') + (s.evoSteps ? ' + ' + fmt(s.evoSteps) + ' steps' : '') : ''))
   mkText(24, 296, W - 48, 22, 16, LILAC, align.CENTER_H, movesOf(m).map((id) => MOVES[id].name).join('  /  '))
   const slot = st.party.indexOf(m.id)
   mkArtButton(34, 322, slot === 0 ? 'btn_leader' : 'btn_lead', () => {
@@ -3217,6 +3272,7 @@ function buildDetail(arg) {
     st.party = st.party.filter((x) => x !== m.id)
     st.party.unshift(m.id)
     if (st.party.length > PARTY_MAX) st.party.pop()
+    save()
     goto('detail', arg, 1)
   })
   mkArtButton(143, 322, slot >= 0 ? 'btn_bench' : 'btn_join', () => {
@@ -3227,10 +3283,21 @@ function buildDetail(arg) {
       if (st.party.length >= PARTY_MAX) return toast('Party is full (3). BENCH one first', GOLD)
       st.party.push(m.id)
     }
+    save()
     goto('detail', arg, 1)
   })
   mkArtButton(252, 322, 'btn_feed_s', () => goto('feed', { id: m.id, back: 'detail', page: arg.page }, 1))
   mkArtButton(95, 376, 'btn_back', () => gotoBack('team', arg.page))
+}
+
+function tickDetail(t) {
+  const u = screen.ui
+  if (u.relUntil && t > u.relUntil) {
+    u.relUntil = 0
+    setRect(u.relBg, { color: 0x3a1828 })
+    setText(u.relTxt, 'RELEASE')
+    setTextColor(u.relTxt, RED)
+  }
 }
 
 // ---------- feeding ----------
@@ -3275,7 +3342,7 @@ function feed(b) {
   const m = u.m
   const s = SPECIES[m.sp]
   if (st.berries[b.id] <= 0) return toast('No ' + b.name + 's: walk to find more', GOLD)
-  if (m.full >= 95) return toast(s.name + ' is full!', ORANGE)
+  if (m.full >= 95 && m.hp >= maxHp(m)) return toast(s.name + ' is full!', ORANGE)
   st.berries[b.id]--
   const fav = s.berry === b.id
   m.full = clamp(m.full + b.full + (fav ? FAV_FULL_BONUS : 0), 0, 100)
@@ -3359,6 +3426,8 @@ function buildBook(arg) {
   const info = arg && typeof arg === 'object' ? arg.info : null
   let page = arg && typeof arg === 'object' ? arg.page : arg
   page = clamp(page || 0, 0, pages - 1)
+  screen.page = page
+  screen.pages = pages
   const caughtN = BOOK.filter((id) => st.caught[id]).length
   mkArtC(2, 't_book')
   mkText(40, 46, W - 80, 20, 15, LILAC, align.CENTER_H, 'caught ' + caughtN + ' / ' + BOOK.length + '  -  tap one for details')
@@ -3430,7 +3499,7 @@ function buildBookPage(id, page) {
 
 // ---------- settings (swipe up on the den) ----------
 const SETTING_ROWS = [
-  { key: 'vibBattle', label: 'Battle vibration', sub: 'hits and faints', cat: 'battle' },
+  { key: 'vibBattle', label: 'Battle vibration', sub: 'hits and knockouts', cat: 'battle' },
   { key: 'vibCatch', label: 'Catch vibration', sub: 'countdown and wobbles', cat: 'catch' },
   { key: 'vibOther', label: 'Other vibration', sub: 'taps, feeding, evolving', cat: 'other' }
 ]
@@ -3529,19 +3598,17 @@ function guideCond(c) {
   return c
 }
 
-// the real-life conditions some Wristlings need, 5 per page so the text fits
+// All real-life conditions in one scrollable section
 function realWorldPages() {
   const conds = []
   for (const id of BOOK) if (SPECIES[id].cond && !PRE[id] && conds.indexOf(SPECIES[id].cond) < 0) conds.push(SPECIES[id].cond)
-  const list = conds.map((c) => '- ' + guideCond(c))
-  const pages = []
-  for (let i = 0; i < list.length; i += 5) {
-    pages.push({
-      title: 'REAL-WORLD ONES' + (list.length > 5 ? ' ' + (i / 5 + 1) : ''),
-      text: (i === 0 ? 'Some Wristlings only come out while something is true where you are (' + COND_WEIGHT + 'x as likely then):\n\n' : '') + list.slice(i, i + 5).join('\n') + (i + 5 >= list.length ? '\n\nTap one in the BOOK to see its rule.' : '')
-    })
-  }
-  return pages
+  return [{
+    title: 'REAL-WORLD ONES',
+    text:
+      'Some Wristlings only come out while something is true where you are (' + COND_WEIGHT + 'x as likely then):\n\n' +
+      conds.map((c) => '- ' + guideCond(c)).join('\n') +
+      '\n\nTap one in the BOOK to see its rule.'
+  }]
 }
 
 // "Most evolve twice: at Lv 12-16, then again at Lv 28." (built from the data)
@@ -3554,11 +3621,14 @@ function evoStepsText() {
 }
 
 function guidePages() {
-  const pages = [
+  return [
     {
       title: 'WELCOME',
       text:
-        'Wristlings live on your wrist.\n\nWalk to earn TRACKS. Spend a track on EXPLORE to meet a wild Wristling, then battle it, catch it, feed it and help it evolve.\n\nDrag up or down to scroll this guide. Swipe RIGHT to go back.\n\nSwipe UP on the den for SETTINGS (vibrations, reset).'
+        'Wristlings live on your wrist.\n\n' +
+        'Walk to earn TRACKS. Spend a track on EXPLORE to meet a wild Wristling, then battle it, catch it, feed it and help it evolve.\n\n' +
+        'Drag up or down to scroll this guide. Swipe RIGHT to go back. In TEAM and BOOK, swipe left or right to turn pages.\n\n' +
+        'Swipe UP on the den for SETTINGS (vibrations, reset). You can also add the Wristlings widget to your watch.'
     },
     {
       title: 'WALKING',
@@ -3573,7 +3643,7 @@ function guidePages() {
     {
       title: 'HEART & SLEEP',
       text:
-        'TRAIN: minutes today with your pulse well above resting become XP for your LEAD (each minute = ' + TRAIN_XP_BASE + ' + its level XP, up to ' + TRAIN_XP_CAP_MIN + ' min/day).\n\n' +
+        'TRAIN: minutes today with your pulse well above resting become XP for your LEAD (other party members get half). Each minute = ' + TRAIN_XP_BASE + ' + lead level XP, up to ' + TRAIN_XP_CAP_MIN + ' min/day.\n\n' +
         'SLEEP: ' + GOOD_SLEEP_MIN / 60 + 'h or more fully heals the team and adds JOY. Lots of REM sleep can bring a rare DREAM VISITOR in the morning.'
     },
     {
@@ -3597,12 +3667,12 @@ function guidePages() {
     {
       title: 'MOVES',
       text:
-        'Buttons: 1 main attack, 2 another element (if it has one), 3 GUARD / REST.\n\n' +
+        'Buttons: 1 main attack, 2 another element (if it has one), 3 GUARD / BREATHER.\n\n' +
         'Weak: ' + MOVES.ember.pow + ' power, never miss.\n' +
         'Strong: ' + MOVES.flare.pow + ' power, ' + MOVES.flare.acc + '% hit.\n' +
-        'TACKLE: no element, never resisted.\n' +
+        'BUMP: no element, never resisted.\n' +
         'GUARD: next hit does ' + pct(GUARD_TAKEN) + '.\n' +
-        'REST: heals ' + pct(REST_HEAL) + ' (LONG NAP ' + pct(MOVES.nap.heal) + '), ' + RESTS_PER_BATTLE + 'x a battle.\n' +
+        'BREATHER: heals ' + pct(REST_HEAL) + ' (LONG NAP ' + pct(MOVES.nap.heal) + '), ' + RESTS_PER_BATTLE + 'x a battle.\n' +
         'Own element: x' + SAME_ELEMENT_BONUS + '. Crit: 1 in ' + Math.round(1 / CRIT_CHANCE) + ', x' + CRIT_MULT
     },
     { title: 'ELEMENTS', chart: true },
@@ -3619,8 +3689,7 @@ function guidePages() {
       title: 'WEATHER',
       text:
         'Battles use today\'s forecast:\n' +
-        Object.keys(WEATHER).map((w) => weatherLine(w)).join('\n') +
-        '\n\nSome Wristlings have TWO elements: both count, but a hit is never more than one STRONG (x' + SUPER_MULT + ') or one WEAK (x' + WEAK_MULT + '). Moves of either element get the own-element bonus.'
+        Object.keys(WEATHER).map((w) => weatherLine(w)).join('\n')
     },
     {
       title: 'CATCHING',
@@ -3629,22 +3698,23 @@ function guidePages() {
         'Chance: ' + pct(CATCH_BASE) + ' + up to ' + pct(CATCH_HP) + ' for lost HP + ' + pct(CATCH_PERFECT) + ' PERFECT / ' + pct(CATCH_GOOD) + ' GOOD (max ' + pct(CATCH_MAX) + ').\n' +
         'UNCOMMON x' + RARITY.uncommon.mult + ', RARE x' + RARITY.rare.mult + ' (faster ring).\n' +
         'Over ' + CATCH_OVERLEVEL + ' levels above your lead: -' + pct(CATCH_OVERLEVEL_PENALTY) + '.\n\n' +
-        'Chip HP with TACKLE first.'
+        'Chip HP with BUMP first.'
     },
     {
       title: 'TEAM',
       text:
         'Up to ' + PARTY_MAX + ' fight in your PARTY; the LEAD goes first. Set them in TEAM.\n\n' +
         'Win: the one that won gets full XP, other standing party members half.\n\n' +
-        'Fainted? The next one jumps in.\n' +
-        'Out of battle they heal ' + pct(HP_REGEN_PER_MIN) + ' of HP a minute.'
+        'Worn out? The next one jumps in.\n' +
+        'Out of battle they heal ' + pct(HP_REGEN_PER_MIN * 60) + ' of HP an hour.\n\n' +
+        'Extras can be RELEASED from their details for 1 berry (your Book keeps them).'
     },
     {
       title: 'CARE',
       text:
-        'FOOD drops ' + FULL_DECAY_PER_HOUR + ' an hour. Below ' + HUNGRY_BELOW + ' = HUNGRY: -' + pct(MOOD_EFFECT) + ' power.\n' +
+        'FOOD drops ' + FULL_DECAY_PER_HOUR + ' an hour for your PARTY (benched ones do not get hungry). Below ' + HUNGRY_BELOW + ' = HUNGRY: -' + pct(MOOD_EFFECT) + ' power.\n' +
         'JOY ' + HAPPY_FROM + '+ = HAPPY: +' + pct(MOOD_EFFECT) + ' power.\n\n' +
-        'Each species has a FAVOURITE berry: +' + FAV_FULL_BONUS + ' food, +' + FAV_JOY_BONUS + ' joy extra. Feeding also heals ' + pct(FEED_HEAL) + '.'
+        'Each species has a FAVOURITE berry: +' + FAV_FULL_BONUS + ' food, +' + FAV_JOY_BONUS + ' joy extra. Feeding also heals ' + pct(FEED_HEAL) + ' HP (even when FOOD is full).'
     },
     {
       title: 'EVOLVING',
@@ -3700,13 +3770,12 @@ function guidePages() {
       text:
         '- Check the move hints: STRONG / WEAK.\n' +
         '- SWAP to one that resists the enemy: it takes the free hit.\n' +
-        '- Finish enemies before they REST (they do below ' + pct(AI_REST_BELOW) + ' HP).\n' +
+        '- Finish enemies before they use BREATHER (they do below ' + pct(AI_REST_BELOW) + ' HP).\n' +
         '- HAPPY vs HUNGRY is a ' + pct(MOOD_EFFECT * 2) + ' swing: keep everyone fed.\n' +
         '- Save charms for species you do not have yet.\n' +
         '- In the BOOK, tap any creature to see where to find it.'
     }
   ]
-  return pages
 }
 
 // Ask the UI engine for the real wrapped height so sections stack seamlessly.
@@ -3745,7 +3814,7 @@ function guideWrap(text, w, size) {
   for (const para of String(text).split('\n')) {
     if (para === '') { out.push(''); continue }
     let line = ''
-    for (const word of para.split(/\s+/)) {
+    for (const word of para.split(' ')) {
       if (!word) continue
       const next = line ? line + ' ' + word : word
       if (next.length <= perLine) { line = next; continue }
@@ -3768,8 +3837,9 @@ function buildGuideRows() {
   const pushText = (text, color) => {
     for (const line of guideWrap(text, W - 66, 15)) rows.push({ type: 'text', text: line, color: color || WHITE })
   }
-  for (let i = 0; i < guidePages().length; i++) {
-    const p = guidePages()[i]
+  const pages = guidePages()
+  for (let i = 0; i < pages.length; i++) {
+    const p = pages[i]
     if (i > 0) pushSpacer(1)
     pushTitle(p.title)
     if (p.chart) {
@@ -3780,6 +3850,8 @@ function buildGuideRows() {
       pushSpacer(1)
       pushText('Beats = x' + SUPER_MULT + ' damage.', GOLD)
       pushText('Same, or beats yours = x' + WEAK_MULT + '.', DIM)
+      pushSpacer(1)
+      pushText('Some Wristlings have TWO elements: both count, but a hit is never more than one STRONG (x' + SUPER_MULT + ') or one WEAK (x' + WEAK_MULT + '). Moves of either element get the own-element bonus.', WHITE)
     } else {
       pushText(p.text, WHITE)
     }
@@ -3788,49 +3860,58 @@ function buildGuideRows() {
   return rows
 }
 
-function setGuideScroll(v) {
-  const g = screen.guide
-  if (!g) return
-  g.scroll = clamp(Math.round(v), 0, g.max)
-  const start = g.lineH ? clamp(Math.floor(g.scroll / g.lineH), 0, g.maxStart) : 0
-
-  for (let i = 0; i < g.pool.length; i++) {
-    const slot = g.pool[i]
-    const row = g.rows[start + i]
-    if (!row) {
-      setVisible(slot.dot, false)
-      setVisible(slot.text, false)
-      continue
-    }
-    if (row.type === 'title') {
-      setVisible(slot.dot, false)
-      setTextStyle(slot.text, { x: 28, y: slot.y, w: W - 66, h: 20, align_h: align.CENTER_H, align_v: align.CENTER_V, text_size: 19, color: GOLD })
-      setText(slot.text, row.text)
-      setVisible(slot.text, true)
-    } else if (row.type === 'text') {
-      setVisible(slot.dot, false)
-      setTextStyle(slot.text, { x: 28, y: slot.y, w: W - 66, h: 20, align_h: align.LEFT, align_v: align.CENTER_V, text_size: 15, color: row.color || WHITE })
-      setText(slot.text, row.text)
-      setVisible(slot.text, true)
-    } else if (row.type === 'element') {
-      const color = (ELEMENTS[row.el] && ELEMENTS[row.el].color) || WHITE
-      setRect(slot.dot, { x: 30, y: slot.y + 3, w: 14, h: 14, radius: 7, color })
-      setVisible(slot.dot, true)
-      setTextStyle(slot.text, { x: 50, y: slot.y, w: W - 88, h: 20, align_h: align.LEFT, align_v: align.CENTER_V, text_size: 15, color: WHITE })
-      setText(slot.text, row.text)
-      setVisible(slot.text, true)
-    } else {
-      setVisible(slot.dot, false)
-      setVisible(slot.text, false)
-    }
-  }
-
+let guideRowsCache = null
+function getGuideRows() {
+  if (!guideRowsCache) guideRowsCache = buildGuideRows()
+  return guideRowsCache
+}
+function guideLineStart(g, scroll) {
+  return g.lineH ? clamp(Math.floor(scroll / g.lineH), 0, g.maxStart) : 0
+}
+function updateGuideThumb(g) {
   const trackH = g.viewH - 8
   const total = g.rows.length
   const visible = g.pool.length
   const thumbH = total > visible ? Math.max(24, Math.round(trackH * visible / total)) : trackH
   const ty = g.viewY + 4 + (g.max ? Math.round(g.scroll / g.max * (trackH - thumbH)) : 0)
   setRect(g.thumb, { y: ty, h: thumbH })
+}
+
+function setGuideScroll(v) {
+  const g = screen.guide
+  if (!g) return
+  g.scroll = clamp(Math.round(v), 0, g.max)
+  const start = guideLineStart(g, g.scroll)
+  const rowsChanged = start !== g.lastStart
+  g.lastStart = start
+
+  if (rowsChanged) {
+    for (let i = 0; i < g.pool.length; i++) {
+      const slot = g.pool[i]
+      const row = g.rows[start + i]
+      if (!row || row.type === 'spacer') {
+        setVisible(slot.dot, false)
+        setText(slot.text, '')
+        continue
+      }
+      if (row.type === 'title') {
+        setVisible(slot.dot, false)
+        setTextStyle(slot.text, { x: 28, y: slot.y, w: W - 66, h: 20, align_h: align.LEFT, align_v: align.CENTER_V, text_size: 19, color: GOLD, text: row.text })
+        slot.text.t = row.text
+      } else if (row.type === 'text') {
+        setVisible(slot.dot, false)
+        setTextStyle(slot.text, { x: 28, y: slot.y, w: W - 66, h: 20, align_h: align.LEFT, align_v: align.CENTER_V, text_size: 15, color: row.color || WHITE, text: row.text })
+        slot.text.t = row.text
+      } else if (row.type === 'element') {
+        const color = (ELEMENTS[row.el] && ELEMENTS[row.el].color) || WHITE
+        setRect(slot.dot, { x: 30, y: slot.y + 3, w: 14, h: 14, radius: 7, color })
+        setVisible(slot.dot, true)
+        setTextStyle(slot.text, { x: 50, y: slot.y, w: W - 88, h: 20, align_h: align.LEFT, align_v: align.CENTER_V, text_size: 15, color: WHITE, text: row.text })
+        slot.text.t = row.text
+      }
+    }
+  }
+  updateGuideThumb(g)
 }
 
 function animateGuideScroll(deltaLines) {
@@ -3853,28 +3934,28 @@ function buildGuide() {
 
   mkTextS(34, 2, W - 68, 38, 27, GOLD, align.CENTER_H, 'GUIDE')
 
-  const rows = buildGuideRows()
+  const rows = getGuideRows()
   const poolSize = Math.floor(viewH / lineH)
   const maxStart = Math.max(0, rows.length - poolSize)
-  const g = {
-    scroll: 0, // pixels
-    max: maxStart * lineH, // pixels
-    maxStart,
-    viewY,
-    viewH,
-    lineH,
-    rows,
-    pool: []
-  }
+  const g = { scroll: 0, max: maxStart * lineH, maxStart, viewY, viewH, lineH, rows, pool: [], lastStart: 0 }
   screen.guide = g
 
-  // Fixed slots; no repositioning during scroll, only content/style.
   for (let i = 0; i < poolSize; i++) {
     const y = viewY + i * lineH
-    const dot = mkRect(30, y + 3, 14, 14, WHITE, 7)
-    setVisible(dot, false)
-    const text = mkText(28, y, W - 66, lineH, 15, WHITE, align.LEFT, '', align.CENTER_V)
-    setVisible(text, false)
+    const row = rows[i]
+    const isTitle = !!(row && row.type === 'title')
+    const isText = !!(row && row.type === 'text')
+    const isElement = !!(row && row.type === 'element')
+    const dot = mkRect(30, y + 3, 14, 14, isElement ? ((ELEMENTS[row.el] && ELEMENTS[row.el].color) || WHITE) : WHITE, 7)
+    if (!isElement) setVisible(dot, false)
+    const text = mkText(
+      isElement ? 50 : 28, y, isElement ? W - 88 : W - 66, lineH,
+      isTitle ? 19 : 15,
+      isTitle ? GOLD : isText ? (row.color || WHITE) : WHITE,
+      align.LEFT,
+      (isTitle || isText || isElement) ? row.text : '',
+      align.CENTER_V
+    )
     g.pool.push({ dot, text, y })
   }
 
@@ -3883,7 +3964,7 @@ function buildGuide() {
   mkRect(0, viewY + viewH, W, H - (viewY + viewH), BG, 0)
   mkArtButton(Math.round(CX - artSize('btn_back_s')[0] / 2), 374, 'btn_back_s', () => gotoBack('den'))
 
-  setGuideScroll(0)
+  updateGuideThumb(g)
 }
 
 const SCREENS = {
@@ -3909,14 +3990,22 @@ const SCREENS = {
 // On the guide, MOVE events drag the document and swipes scroll a chunk.
 let down = null
 let upSeen = false
+let lastMoveAt = 0
 
 function onDown(e) {
   try {
     if (slide) return
     if (!e || typeof e.x !== 'number') return
     upSeen = false
+    lastMoveAt = 0
     if (screen.instant) return fireTap(e.x, e.y)
-    down = { x: e.x, y: e.y, t: now(), scr: screen, dragged: false, scroll0: screen.guide ? screen.guide.scroll : 0 }
+    const t = now()
+    down = {
+      x: e.x, y: e.y, t,
+      lastY: e.y, lastT: t, vy: 0,
+      scr: screen, dragged: false,
+      scroll0: screen.guide ? screen.guide.scroll : 0
+    }
   } catch (err) {
     showError('tap', err)
   }
@@ -3925,15 +4014,29 @@ function onMove(e) {
   try {
     if (slide || !down || down.scr !== screen) return
     if (screen.name !== 'guide' || !e) return
+    const t = now()
+    if (t - lastMoveAt < 40) return
+    lastMoveAt = t
     const px = typeof e.x === 'number' ? e.x : e.pos_x
     const py = typeof e.y === 'number' ? e.y : e.pos_y
-    if (typeof px !== 'number' || typeof py !== 'number') return
+    if (typeof py !== 'number') return
     const dy = down.y - py
-    if (Math.abs(dy) < 4) return
+    const dx = typeof px === 'number' ? Math.abs(px - down.x) : 0
+    if (!down.dragged && (Math.abs(dy) < 8 || Math.abs(dy) < dx)) return
+    const dt = Math.max(1, t - down.lastT)
+    down.vy = (down.lastY - py) / dt
+    down.lastY = py
+    down.lastT = t
     down.dragged = true
-    lastDrag = now()
+    lastDrag = t
     scrollAnim = null
-    setGuideScroll(down.scroll0 + dy)
+    const g = screen.guide
+    const want = down.scroll0 + dy
+    if (guideLineStart(g, want) !== g.lastStart) setGuideScroll(want)
+    else {
+      g.scroll = clamp(Math.round(want), 0, g.max)
+      updateGuideThumb(g)
+    }
   } catch (err) {
     showError('drag', err)
   }
@@ -3945,10 +4048,7 @@ function onUp(e) {
     down = null
     if (!d || d.scr !== screen) return
     if (d.dragged) {
-      // a small flick carries on after the finger lifts
-      const dt = Math.max(1, now() - d.t)
-      const v = (screen.guide.scroll - d.scroll0) / dt // px/ms
-      animateGuideScroll(v * 180)
+      if (now() - d.lastT < 120 && Math.abs(d.vy) > 0.15) animateGuideScroll(d.vy * 180)
       return
     }
     if (e && typeof e.x === 'number' && (Math.abs(e.x - d.x) > 40 || Math.abs(e.y - d.y) > 40)) return
@@ -3982,46 +4082,47 @@ function fireTap(x, y) {
 function onSwipe(ev) {
   down = null
   if (slide) return true
-  if (now() - lastDrag < 250) return true // a drag is not also a swipe
-  // the guide scrolls continuously; RIGHT goes back
-  if (screen.name === 'guide') {
+  if (now() - lastDrag < 250) return true
+  const n = screen.name
+  if (n === 'guide') {
     if (ev === GESTURE_RIGHT) gotoBack('den')
     else if (ev === GESTURE_UP || ev === GESTURE_LEFT) animateGuideScroll(220)
     else if (ev === GESTURE_DOWN) animateGuideScroll(-220)
     else return false
     return true
   }
-  if (ev === GESTURE_LEFT && screen.name === 'den') {
-    goto('guide', 0, 1)
-    return true
+  if (n === 'den') {
+    if (ev === GESTURE_LEFT) { goto('guide', 0, 1); return true }
+    if (ev === GESTURE_RIGHT) { goto('boss', undefined, -1); return true }
+    if (ev === GESTURE_UP) { goto('settings', undefined, 1, 'y'); return true }
+    return false
   }
-  if (ev === GESTURE_RIGHT && screen.name === 'den') {
-    goto('boss', undefined, -1)
-    return true
+  if (n === 'settings' && (ev === GESTURE_RIGHT || ev === GESTURE_DOWN)) { home(); return true }
+  if (n === 'boss' && (ev === GESTURE_LEFT || ev === GESTURE_RIGHT)) { home(); return true }
+  if (n === 'book' && screen.arg && typeof screen.arg === 'object' && screen.arg.info) {
+    if (ev === GESTURE_RIGHT) gotoBack('book', screen.arg.page)
+    return ev === GESTURE_RIGHT || ev === GESTURE_LEFT
   }
-  if (ev === GESTURE_UP && screen.name === 'den') {
-    goto('settings', undefined, 1, 'y')
-    return true
-  }
-  if (screen.name === 'settings' && (ev === GESTURE_RIGHT || ev === GESTURE_DOWN)) {
-    home()
-    return true
+  // Swipe left/right to flip pages in TEAM and BOOK; swipe right on page 1 goes home
+  if (n === 'team' || n === 'book') {
+    if (ev === GESTURE_LEFT && screen.pages > 1) {
+      goto(n, (screen.page + 1) % screen.pages, 1)
+      return true
+    }
+    if (ev === GESTURE_RIGHT) {
+      if (screen.page > 0) goto(n, screen.page - 1, -1)
+      else home()
+      return true
+    }
+    return false
   }
   if (ev !== GESTURE_RIGHT) return false
-  const n = screen.name
-  if (n === 'team' || n === 'book' || n === 'boss') {
-    home()
-    return true
-  }
-  if (n === 'detail') {
-    gotoBack('team', screen.arg.page)
-    return true
-  }
+  if (n === 'detail') { gotoBack('team', screen.arg.page); return true }
   if (n === 'feed') {
-    home()
+    if (screen.arg && screen.arg.back === 'detail') gotoBack('detail', { id: screen.arg.id, page: screen.arg.page })
+    else home()
     return true
   }
-  // in battle / catch / evolve the swipe is blocked so you cannot leave by accident
   return n === 'battle' || n === 'catch' || n === 'evolve'
 }
 
@@ -4031,13 +4132,10 @@ function tick() {
     const t = now()
     tickSlide(t)
     tickScroll(t)
-    if (down && !upSeen && t - down.t > 350) {
+    if (down && !upSeen && t - (down.dragged ? lastDrag : down.t) > 350) {
       const d = down
       down = null
-      if (d.scr === screen && d.dragged) {
-        const dt = Math.max(1, t - d.t)
-        animateGuideScroll((screen.guide.scroll - d.scroll0) / dt * 220)
-      } else if (d.scr === screen) fireTap(d.x, d.y)
+      if (d.scr === screen && !d.dragged) fireTap(d.x, d.y)
     }
     if (screen.toastUntil && t > screen.toastUntil) {
       screen.toastUntil = 0
@@ -4049,6 +4147,7 @@ function tick() {
     else if (n === 'catch') tickCatch(t)
     else if (n === 'evolve') tickEvolve(t)
     else if (n === 'settings') tickSettings(t)
+    else if (n === 'detail') tickDetail(t)
     // once a minute: hunger, healing, free tracks
     if (t - lastMinute >= 60000) {
       passTime(t - lastMinute, n === 'battle' || n === 'catch') // no healing mid-fight

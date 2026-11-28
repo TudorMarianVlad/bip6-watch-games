@@ -11,7 +11,7 @@ Added 2026-11-19 with new conditions (1–13), plus 7 holiday creatures (14–20
 | 5–7 | **Ampsnail → Voltsnail → Dynamollusk** | Electric | Watch **battery under 20%**. Dynamollusk also needs 20,000 steps walked as your lead |
 | 8–10 | **Pumpkling → Gourdgrin → Jackolord** | Grass (Jackolord: Grass/Shadow) | **25 Oct – 2 Nov** |
 | 11 | **Frostjay** | Ice | Only in **December** |
-| 12 | **Terramble** | Legend, Earth/Grass | After **1,000,000 steps** counted by the game |
+| 12 | **Terramble** | Legend, Earth/Grass | After **500,000 steps** counted by the game |
 | 13 | **Emberwing** | Legend, Fire/Air | After a **7-day streak** of 5,000+ steps a day |
 | 14 | **Eggling** | Light | **Easter week**, Palm Sunday to Easter Monday (Western or Orthodox) |
 | 15 | **Woolamb** | Grass | **Easter week** (same) |

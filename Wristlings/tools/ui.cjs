@@ -649,7 +649,7 @@ function art() {
   // catch countdown
   for (const n of ['3', '2', '1']) add('t_count' + n, title(n, 9, gold))
   add('t_go', title('GO!', 7, { top: 0xffffff, bottom: 0x8af07a, side: 0x2a7a3a }))
-  // the watch widget (secondary-widget/index.js): same style, but dark parts stay
+  // the watch widget (secondary-widget/team-widget.js): same style, but dark parts stay
   // near-black so the pure black widget background stays dark on the AMOLED screen
   const dark = { r: 16, top: 0x161230, bottom: 0x0a0816, edge: 0x342b6a, alpha: 1 }
   add('w_logo', title('WRISTLINGS', 3.25, gold))
